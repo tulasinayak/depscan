@@ -40,7 +40,7 @@ MAX_FILE_BYTES = 5 * 1024 * 1024              # a single member larger than this
 MAX_UNCOMPRESSED = 500 * 1024 * 1024          # declared sizes walked per archive: stops zip/tar bombs
 MAX_MEMBERS = 50_000                          # members looked at per archive
 MAX_RETRIEVED = 60
-INDEX_VERSION = 2                     # 2: definitions inside module/class-level if/try/with
+INDEX_VERSION = 4   # 2: definitions in if/try/with blocks; 3: base classes, class attributes; 4: Base[T]
 STOP = set("the and for with that this from when into could can not are was were has have its via use used using "
            "may allow allows attacker attackers remote user users data file files code before after version versions "
            "python package vulnerability vulnerable issue fix fixed which will would been being also only other "
@@ -122,6 +122,7 @@ class ApiIndex:
     calls: dict[str, list[str]] = field(default_factory=dict)    # function -> simple names it calls
     opaque: list[str] = field(default_factory=list)              # modules whose names are (partly) made at runtime
     native: list[str] = field(default_factory=list)              # compiled extension files in the archive
+    bases: dict[str, list[str]] = field(default_factory=dict)    # class -> its base classes (dotted, as imported)
     version_: int = INDEX_VERSION
 
     def to_json(self) -> str:
@@ -163,6 +164,22 @@ class ApiIndex:
             base = self.canonical(head, depth + 1)
             if base and base != head and f"{base}.{tail}" in self.symbols:
                 return f"{base}.{tail}"
+            if base and self.symbols.get(base) == "class":
+                return self.inherited(base, tail, depth)
+        return None
+
+    def inherited(self, cls: str, member: str, depth: int = 0) -> str | None:
+        """A member a class gets from one of its base classes in this package (MedianFilter.filter is
+        RankFilter.filter), nearest base first."""
+        seen, todo = {cls}, list(self.bases.get(cls, []))
+        while todo and len(seen) < 64:
+            b = self.canonical(todo.pop(0), depth + 1)
+            if not b or b in seen:
+                continue
+            seen.add(b)
+            if f"{b}.{member}" in self.symbols:
+                return f"{b}.{member}"
+            todo.extend(self.bases.get(b, []))
         return None
 
     def aliases(self, target: str) -> list[str]:
@@ -201,8 +218,9 @@ class ApiIndex:
                     if hit:
                         return hit, f"import name {top}"
         lower = {s.lower(): s for s in list(self.symbols) + list(self.reexports)}
-        if symbol.lower() in lower:
-            return self.canonical(lower[symbol.lower()]), "casing"
+        hit = self.canonical(lower[symbol.lower()]) if symbol.lower() in lower else None
+        if hit and self.symbols.get(hit) not in ("variable", "attribute"):   # PIL.Image.save is not PIL.Image.SAVE
+            return hit, "casing"
         for n in (2, 1):
             if len(parts) < n:
                 continue
@@ -329,10 +347,31 @@ def index_sources(package: str, version: str, archive: str, top_level: list[str]
                 if isinstance(node, ast.ClassDef):
                     q = f"{prefix}.{node.name}"
                     idx.symbols[q] = "class"
+                    bases = []
+                    for b in node.bases:
+                        d = _dotted(b.value if isinstance(b, ast.Subscript) else b)   # Base[T] -> Base
+                        if d and d[0] in imports:
+                            bases.append(".".join([imports[d[0]], *d[1:]]))
+                        elif d and d[0] not in ("object", "Generic", "Protocol"):
+                            bases.append(".".join([mod, *d]))     # a class of the same module
+                    if bases:
+                        idx.bases[q] = bases
                     visit(node.body, q, q)
+                elif cls and isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                    for t in targets:                           # __truediv__ = joinpath; timeout: float = 5
+                        if isinstance(t, ast.Name) and (not t.id.startswith("_") or t.id.endswith("__")):
+                            idx.symbols.setdefault(f"{prefix}.{t.id}", "attribute")
                 elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     q = f"{prefix}.{node.name}"
                     idx.symbols[q] = "method" if cls else "function"
+                    if cls:                                     # self.scope = scope in a method: an attribute
+                        for sub in ast.walk(node):
+                            for t in (sub.targets if isinstance(sub, ast.Assign) else
+                                      [sub.target] if isinstance(sub, ast.AnnAssign) else []):
+                                if (isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name)
+                                        and t.value.id == "self" and not t.attr.startswith("_")):
+                                    idx.symbols.setdefault(f"{cls}.{t.attr}", "attribute")
                     spans.append([node.lineno, getattr(node, "end_lineno", node.lineno), q])
                     refs, calls = set(), set()
                     for sub in ast.walk(node):
@@ -619,8 +658,8 @@ def retrieve(idx: ApiIndex, vuln: Vulnerability, diff: str, changed: list[str],
     diff_mods = {mo for mo, rel in idx.files.items() if rel and rel in (diff or "")}
     scored = []
     for sym, kind in idx.symbols.items():
-        if kind in ("module", "variable") or any(p.startswith("_") and p not in ("__init__", "__new__", "__call__")
-                                                 for p in sym.split(".")[1:]):
+        if kind in ("module", "variable", "attribute") or any(
+                p.startswith("_") and p not in ("__init__", "__new__", "__call__") for p in sym.split(".")[1:]):
             continue
         parts = [p.lower() for p in sym.split(".")]
         score = 6 * (sym in changed) + 3 * any(sym.startswith(m + ".") for m in diff_mods)

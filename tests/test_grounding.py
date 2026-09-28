@@ -251,6 +251,50 @@ def test_definitions_inside_module_level_if_and_try_are_indexed():
     assert idx.symbols["certa.core.fast"] == "function"
     assert idx.symbols["certa.core.Box.open"] == "method"
 
+
+def test_inherited_members_and_class_attributes_resolve():
+    base = textwrap.dedent("""
+        class Conn:
+            def __init__(self, scope):
+                self.scope = scope
+                self._private = 1
+            @property
+            def headers(self):
+                return {}
+    """).encode()
+    filters = textwrap.dedent("""
+        from .base import Conn
+        class RankFilter:
+            def filter(self, image):
+                return image
+        class MedianFilter(RankFilter):
+            pass
+        class Request(Conn[str]):
+            def joinpath(self, other):
+                return other
+            __truediv__ = joinpath
+            timeout: float = 5.0
+    """).encode()
+    idx = index_sources("filta", "1.0", "filta-1.0.tar.gz", ["filta"],
+                        {"filta": ("filta/__init__.py", b"from .filters import MedianFilter, Request\n"),
+                         "filta.base": ("filta/base.py", base),
+                         "filta.filters": ("filta/filters.py", filters)})
+    assert idx.resolve("filta.MedianFilter.filter")[0] == "filta.filters.RankFilter.filter"
+    assert idx.resolve("filta.Request.headers")[0] == "filta.base.Conn.headers"      # base from another module
+    assert idx.resolve("filta.Request.scope")[0] == "filta.base.Conn.scope"          # self.scope = ... in a method
+    assert idx.resolve("filta.Request.__truediv__")[0] == "filta.filters.Request.__truediv__"
+    assert idx.resolve("filta.Request.timeout")[0] == "filta.filters.Request.timeout"
+    assert idx.resolve("filta.Request._private")[0] is None
+    assert idx.resolve("filta.MedianFilter.render")[0] is None
+    idx.symbols["filta.filters.JOINPATH"] = "variable"                           # like PIL.Image.SAVE
+    assert idx.resolve("filta.filters.joinpath")[0] == "filta.filters.Request.joinpath"   # unique name, not casing
+    excerpt = "\n".join(f"{s} {k}" for s, k in idx.symbols.items())
+    assert "filta.base.Conn.scope attribute" in excerpt
+    v = Vulnerability(id="CVE-F", summary="Request scope timeout headers filter", match="affected", match_reason="r")
+    facts, _ = api_excerpt(idx, v, "")
+    assert "RankFilter.filter (method)" in facts
+    assert "scope" not in facts and "timeout" not in facts                         # attributes stay out of the prompt
+
 # ---------------------------------------------------------------- 3: retrieval for the prompt
 
 DIFF = """diff --git a/quuxarc/archive.py b/quuxarc/archive.py

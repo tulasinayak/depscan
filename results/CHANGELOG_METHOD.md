@@ -172,3 +172,27 @@ in the API of certifi 2023.5.7". certifi defines `where()` only inside `if sys.v
   development + dev-2, mostly one or two entries at the end of the 60-entry excerpt; validation changes only for
   the two certifi advisories. Those specs are regenerated in both grounded variants (llm+facts and gemini+facts)
   before the comparison, so every grounded spec comes from the fixed index.
+
+## 2026-09-28: API index follows base classes (grounded variants only)
+
+Found in the same review, by listing every symbol validation dropped (13 in the two grounded variants). 5 drops were
+right (names that do not exist, e.g. `jinja2.Environment.render`, `ec.public_key_from_numbers`). 8 were wrong:
+
+- **Inherited members** (7): `urllib3.ProxyManager.connection_from_url` (defined on PoolManager),
+  `PIL.ImageFilter.MedianFilter/MinFilter/MaxFilter.filter` (on RankFilter), starlette `Request.headers` /
+  `Request.scope` (on HTTPConnection). The index now records each class's base classes and looks a member up
+  through them, within the package.
+- **Class attributes** (1): `zipp.Path.__truediv__ = joinpath`. Class-level assignments and `self.x = ...` in
+  methods are now indexed as attributes. They are used only to validate names and are kept out of the prompt excerpt.
+
+A wrong drop shortens a trigger list and can turn into a wrong not affected, so the specs with such drops are
+regenerated before the comparison. Index format version 3.
+- **Casing rewrites never land on a variable or attribute.** Gemini+facts PYSEC-2023-175 listed `PIL.Image.save`;
+  validation rewrote it to `PIL.Image.SAVE` ("casing"), which is Pillow's save-handler registry, not the method.
+  A name that differs only in casing now resolves only to a module, class, function or method. Otherwise the
+  unique-name rule applies, which gives `PIL.Image.Image.save`. This was the only casing rewrite in either
+  grounded variant.
+- **Subscripted base classes** (`class Request(HTTPConnection[StateT])` in starlette) are followed too (index
+  version 4). Found when re-checking the llm+facts validations. With it, `Request.state` resolves to
+  `HTTPConnection.state`. The earlier "unique name" rewrite of `Request.path` to `URL.path`, an unrelated class, now
+  becomes a drop; starlette's Request has no `path`.
