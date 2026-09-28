@@ -350,3 +350,42 @@ def test_stepwise_reaches_a_transitive_package_through_code_parent_triggers(tmp_
     g = gates(rec)
     assert g["present"].result == "pass" and "zorbanet.get" in g["present"].explanation
     assert rec.spec_variant == "llm+facts"
+
+
+# ---------------------------------------------------------------- offline mode and no network
+
+def test_offline_uses_the_cache_alone(tmp_path, pypi):
+    online = source(tmp_path, pypi)
+    assert online.index("quuxarc", "2.0.0") is not None
+    (tmp_path / "cache" / "api_index" / "quuxarc-2.0.0.json").unlink()        # index gone, archive still cached
+    offline = source(tmp_path, pypi, offline=True)
+    before = len(pypi.requests)
+    idx = offline.index("quuxarc", "2.0.0")                                   # rebuilt from the cached archive
+    assert idx is not None and "quuxarc.archive.QuuxFile" in idx.symbols
+    assert offline.top_level("quuxarc", "2.0.0") == ["quuxarc"]
+    assert len(pypi.requests) == before                                       # not a single request
+
+
+def test_offline_with_empty_cache_falls_back_to_name_matching(tmp_path, pypi):
+    offline = source(tmp_path, pypi, offline=True)
+    assert offline.top_level("zorbanet", "1.0.0") is None and offline.index("zorbanet", "1.0.0") is None
+    assert pypi.requests == []
+    assert resolve_import_names("zorbanet", "1.0.0", {"zorbaNet"}, offline) == (["zorbaNet"], "name_heuristic_case")
+
+
+def down() -> httpx.MockTransport:
+    def fail(request):
+        raise httpx.ConnectError("network is down", request=request)
+    return httpx.MockTransport(fail)
+
+
+def test_no_network_no_cache_scan_still_works(tmp_path):
+    from test_orchestrator import FIX, make_orch
+    orch = make_orch(tmp_path)
+    orch.cfg.grounding.pypi = True
+    orch._packages = PackageSource(orch.cfg.cache, ResponseCache(tmp_path / "http.sqlite", 3600), transport=down())
+    result = orch.scan(str(FIX / "usage_repo"))                               # must not raise
+    usages = list(result.usages.values())
+    assert usages and all(u.import_name_source != "pypi_metadata" for u in usages)
+    assert any(u.usage_status == "direct_usage" for u in usages)              # sites still found by name
+    assert any("ConnectError" in m for m in orch._packages.log)
