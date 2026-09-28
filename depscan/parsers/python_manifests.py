@@ -113,7 +113,7 @@ class RequirementsTxtParser(ManifestParser):
             return
         seen.add(path)
         scope = requirements_scope(rel)
-        text = path.read_text(encoding="utf-8", errors="replace").replace("\\\n", " ")
+        text = path.read_text(encoding="utf-8-sig", errors="replace").replace("\\\n", " ")
         last: ParsedEntry | None = None    # the most recent requirement, for pip-compile "# via" comments
         in_via = False
         for raw in text.splitlines():
@@ -185,7 +185,7 @@ class PyprojectParser(ManifestParser):
     def parse(self, path: Path, rel_path: str) -> ParseOutput:
         out = ParseOutput()
         try:
-            data = tomllib.loads(path.read_text(encoding="utf-8"))
+            data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
         except tomllib.TOMLDecodeError as e:
             out.warnings.append(f"{rel_path}: invalid TOML: {e}")
             return out
@@ -245,7 +245,7 @@ class PipfileParser(ManifestParser):
     def parse(self, path: Path, rel_path: str) -> ParseOutput:
         out = ParseOutput()
         try:
-            data = tomllib.loads(path.read_text(encoding="utf-8"))
+            data = tomllib.loads(path.read_text(encoding="utf-8-sig"))
         except tomllib.TOMLDecodeError as e:
             out.warnings.append(f"{rel_path}: invalid TOML: {e}")
             return out
@@ -267,7 +267,7 @@ class PipfileParser(ManifestParser):
 
 def _toml(path: Path, rel: str, out: ParseOutput) -> dict | None:
     try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
+        return tomllib.loads(path.read_text(encoding="utf-8-sig"))
     except tomllib.TOMLDecodeError as e:
         out.warnings.append(f"{rel}: invalid TOML: {e}")
         return None
@@ -307,7 +307,7 @@ class PipfileLockParser(ManifestParser):
     def parse(self, path: Path, rel_path: str) -> ParseOutput:
         out = ParseOutput()
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
         except json.JSONDecodeError as e:
             out.warnings.append(f"{rel_path}: invalid JSON: {e}")
             return out

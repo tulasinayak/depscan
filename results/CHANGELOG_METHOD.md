@@ -111,3 +111,14 @@ files reach the analysis, so they are recorded here.
   - release file names are sanitised before use as cache paths;
   - only https download URLs are accepted;
   - archive walks stop after 500 MB of declared content or 50,000 members.
+
+## 2026-09-28: T1 manifest parsing fixes
+
+Found by `tests/test_manifests_robust.py`.
+
+- **A UTF-8 byte-order mark lost the first package.** At the start of a requirements file, pyproject, Pipfile or lock
+  file, the BOM made the first line fail to parse, so that dependency was silently dropped. Manifests are now read
+  as `utf-8-sig`.
+- **Conflicting duplicate pins now give a warning.** When the same package is pinned to two different exact
+  versions under the same environment marker (e.g. `requests==2.30.0` and `requests==2.31.0`), the scan now warns
+  and names the version it uses. Which version is chosen is unchanged.

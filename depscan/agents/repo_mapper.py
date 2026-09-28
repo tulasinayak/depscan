@@ -264,6 +264,11 @@ def merge_entries(entries: list[tuple[int, ParsedEntry]], warnings: list[str]) -
         if name in declared:
             decl = [e for _, e in declared[name]]
             best = next((e for e in decl if e.resolved_version), decl[0])
+            clash = sorted({e.resolved_version for e in decl if e.resolved_version and e.marker == best.marker})
+            if len(clash) > 1:
+                where = ", ".join(sorted({e.source_file for e in decl if e.resolved_version}))
+                warnings.append(f"{name}: pinned to different versions ({', '.join(clash)}) in {where}; "
+                                f"using {best.resolved_version}")
             scopes = {e.scope for e in decl}
             scope = "main" if "main" in scopes else ("dev" if "dev" in scopes else "unknown")
             resolved, reason = best.resolved_version, best.unresolved_reason
