@@ -1,0 +1,12 @@
+[tool.poetry]
+name = "poetry-demo"
+version = "0.1.0"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+requests = "^2.25"
+Pillow = "9.0.0"
+mylib = { git = "https://example.com/mylib.git" }
+
+[tool.poetry.group.dev.dependencies]
+black = { version = "22.3.0" }

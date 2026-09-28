@@ -1,0 +1,36 @@
+[project]
+name = "depscan"
+version = "0.1.0"
+description = "Find a repo's dependencies, match them to known CVEs, locate their usage, and ask a local LLM whether each CVE affects the repo."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "GitPython>=3.1",
+    "packaging>=24.0",
+    "cvss>=3.2",
+    "httpx>=0.27",
+    "openai>=1.40",
+    "streamlit>=1.40",
+    "altair>=5.0",
+    "rich>=13.0",
+    "pyyaml>=6.0.3",
+]
+
+[dependency-groups]
+dev = [
+    "playwright==1.62.0",
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["depscan"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["fixtures", "screenshots"]
+addopts = "-m 'not real_llm'"
+markers = ["real_llm: slow end-to-end GUI runs against a real local model (run with: pytest -m real_llm tests/gui)"]

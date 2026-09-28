@@ -1,0 +1,11 @@
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = ["Jinja2>=3.0", "click==8.0.0"]
+
+[project.optional-dependencies]
+docs = ["sphinx"]
+
+[dependency-groups]
+dev = ["pytest", {include-group = "lint"}]
+lint = ["ruff==0.1.0"]

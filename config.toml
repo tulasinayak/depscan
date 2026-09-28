@@ -1,0 +1,33 @@
+# depscan configuration. Environment variables override these values:
+#   DEPSCAN_LLM_BASE_URL, DEPSCAN_LLM_MODEL, DEPSCAN_LLM_API_KEY, DEPSCAN_OFFLINE=1
+
+[llm]
+# Any OpenAI-compatible endpoint. Default: local Ollama.
+base_url = "http://localhost:11434/v1"
+model = "qwen3:8b"
+api_key = "ollama"          # Ollama ignores it; hosted endpoints need a real key (prefer the env var)
+reasoning_effort = "none"   # turns qwen3 thinking off via the OpenAI API; "" = don't send the parameter
+json_mode = true            # response_format = json_object
+temperature = 0.1
+timeout_seconds = 900
+# Context window of the served model. Ollama's OpenAI endpoint uses the server default of 4096 tokens;
+# start Ollama with OLLAMA_CONTEXT_LENGTH=8192 and raise this to fit more snippets per prompt.
+max_context_tokens = 8192
+max_output_tokens = 900
+
+[osv]
+base_url = "https://api.osv.dev"
+cache_ttl_hours = 24        # cached OSV responses older than this are refetched
+offline = false             # true: answer only from the cache and report misses
+timeout_seconds = 30
+retries = 3
+max_workers = 8             # parallel GET /v1/vulns/{id}
+
+[grounding]
+pypi = true                 # import names + API index from each vulnerable package's own release (cached, never run)
+spec_variant = "llm"        # stepwise trigger specs: "llm" or "llm+facts" (API facts in the prompt, validated)
+
+[paths]
+workspace = "workspace"     # clones + cache.sqlite
+results = "results"
+logs = "logs"

@@ -1,0 +1,39 @@
+# Python / tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# Clones, downloads, caches and logs (large, or may contain third-party code and prompts)
+workspace/
+cache/
+logs/
+*.sqlite
+*.sqlite3
+*.db
+tests/gui/downloads/
+
+# Results: keep the Markdown reports, not the raw JSON
+results/*.json
+
+# Secrets
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.*
+credentials*
+*token*.txt
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

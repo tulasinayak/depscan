@@ -1,0 +1,9 @@
+-r base/common.txt
+-c constraints.txt
+requests[socks,security]>=2.0          # extras + range; the constraint file pins it
+colorama==0.4.4 ; sys_platform == "win32"
+-e ./local_pkg
+-e git+https://github.com/org/editable-lib.git#egg=editable-lib
+mylib @ git+https://github.com/org/mylib.git@v1.0
+https://files.example.com/pkgs/some_dist-1.2.0.tar.gz
+unconstrained-pkg

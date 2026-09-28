@@ -1,0 +1,9 @@
+{
+  "_meta": {"hash": {"sha256": "x"}},
+  "default": {
+    "django": {"version": "==3.2.0"},
+    "sqlparse": {"version": "==0.4.1"},
+    "mylib": {"git": "https://example.com/mylib.git"}
+  },
+  "develop": {"pytest": {"version": "==7.0.0"}}
+}

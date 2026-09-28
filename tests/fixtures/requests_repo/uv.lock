@@ -1,0 +1,29 @@
+version = 1
+requires-python = ">=3.11"
+
+[[package]]
+name = "reqapp"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [{ name = "requests" }]
+
+[[package]]
+name = "requests"
+version = "2.19.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [{ name = "certifi" }, { name = "idna" }, { name = "urllib3" }]
+
+[[package]]
+name = "urllib3"
+version = "1.23"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "certifi"
+version = "2018.4.16"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "idna"
+version = "2.7"
+source = { registry = "https://pypi.org/simple" }

@@ -1,0 +1,15 @@
+[[package]]
+name = "requests"
+version = "2.25.1"
+
+[[package]]
+name = "pillow"
+version = "9.0.0"
+
+[[package]]
+name = "idna"
+version = "2.10"
+
+[[package]]
+name = "black"
+version = "22.3.0"

@@ -1,0 +1,11 @@
+# production requirements
+-r requirements-dev.txt
+Flask==2.0.1            # exact pin
+PyYAML==3.13
+requests>=2.19,<3       # range -> unresolved
+beautifulsoup4
+urllib3==1.24.1 \
+    --hash=sha256:abc123
+colorama==0.4.4 ; sys_platform == "win32"
+-e ./local_pkg
+-i https://pypi.org/simple

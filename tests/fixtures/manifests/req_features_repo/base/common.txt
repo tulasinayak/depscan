@@ -1,0 +1,2 @@
+-r ../shared/extra.txt
+click==8.0.0
