@@ -87,3 +87,27 @@ served from an in-memory PyPI.
 
 Spec variants have their own caches: `cache/triggers/` for "llm" and `cache/triggers__llm_facts/` for "llm+facts".
 The stepwise verdict records `spec_variant`, and `evaluate` / `evaluate-suite --spec-variant` score one variant.
+
+## 2026-09-28: T8 security fixes that change what is analysed (no verdict rule changed)
+
+Found by the new security tests (`tests/test_security.py`). None changes a gate or verdict rule; they change which
+files reach the analysis, so they are recorded here.
+
+- **Symbolic links and junctions are never followed.** They are skipped with a warning. Before, a linked `.py` or
+  requirements file was read, and a link to a file outside the repo could put its content into a prompt.
+- **`-r` / `-c` includes must stay inside the repo.** `../x`, absolute paths and links are refused with a warning.
+  Before, they were read, and their lines were parsed as package names.
+- **Size and count limits**, each with a warning:
+  - `.py` files over 2 MB and manifests over 5 MB are skipped;
+  - at most 20,000 Python files and 200,000 directory entries are looked at.
+
+  The development repos are far below these limits, so their results don't change.
+- **Clones and updates never run anything from the repo or the user's git config.**
+  - No hooks, no filters or LFS smudge (attributes are read from the empty tree), no submodules.
+  - Symlinks are checked out as plain files.
+  - Only https remotes are accepted: file://, ext::, ssh/git/http, URLs with credentials and anything starting with
+    "-" are refused.
+- **PyPI downloads (grounding):**
+  - release file names are sanitised before use as cache paths;
+  - only https download URLs are accepted;
+  - archive walks stop after 500 MB of declared content or 50,000 members.
