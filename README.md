@@ -200,6 +200,25 @@ with the reason. The parser layer (`depscan/parsers/`) has a registry, so npm ca
   back to a fresh clone.
 - A directory is deleted only if it is inside `workspace/` and carries depscan's `.git/depscan-clone` marker.
 
+## Tests
+
+`uv run pytest` runs the **fast** tests only. They are offline, need no LLM, and each takes well under a second. The
+run ends with a coverage report per module. The other groups are selected with a marker:
+
+| marker | what | run with |
+|---|---|---|
+| `fast` | the default; every test without another category | `uv run pytest` |
+| `slow` | offline but slower: Streamlit AppTest pages, real git clones, big inputs, the metamorphic sweep | `uv run pytest -m slow` |
+| `security` | malicious repos and packages: links, path tricks, git hooks and filters, URL checks, archive bombs, HTML escaping | `uv run pytest -m security` |
+| `metamorphic` | code transformations of the development repos (`results/metamorphic_report.md`) | `uv run pytest -m metamorphic` |
+| `gui` | real-browser runs with Playwright; `tests/gui/test_gui_edge.py` uses a fake LLM and its own server on port 8502 | `uv run pytest -m gui tests/gui -s` |
+| `llm` | needs a running model (Ollama, or a cloud profile) | `uv run pytest -m llm -s` |
+| `network` | needs the internet (PyPI, OSV, GitHub) | `uv run pytest -m network` |
+| `realworld` | real public projects, scanned and checked | `uv run pytest -m realworld -s` |
+
+`security` and `metamorphic` tests that are quick also run by default. Add `--no-cov` to skip the coverage report,
+and `-m "fast or slow"` to run everything offline. Nothing in the tests reads or scans the held-out repositories.
+
 ## Known limitations
 
 - Static analysis only. Reachability and taint are name-based and simple (no types, no aliasing through data
