@@ -37,3 +37,9 @@ credentials*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Test tooling output
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
