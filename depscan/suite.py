@@ -239,7 +239,7 @@ def _md_table(rows: list[dict]) -> list[str]:
 
 def to_markdown(rep: SuiteReport) -> str:
     out = [f"# depscan suite evaluation{' (no LLM)' if rep.no_llm else ''}", "",
-           f"- suite: `{rep.suite_file}`", f"- generated: {rep.created_at:%Y-%m-%d %H:%M} UTC",
+           f"- suite: `{ev.shown_path(rep.suite_file)}`", f"- generated: {rep.created_at:%Y-%m-%d %H:%M} UTC",
            f"- total LLM time: {rep.llm_seconds / 60:.1f} min", "", "## Methods compared", ""]
     out += _md_table(method_rows(rep))
     out += ["", "decided accuracy = right answers among firm answers (affected / not affected); coverage = share of "

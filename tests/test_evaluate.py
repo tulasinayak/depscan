@@ -229,3 +229,11 @@ def test_suite_reports_groups_separately(tmp_path):
     srep = su.SuiteReport(created_at=T0, suite_file="s", no_llm=False, repos=outcomes, modes={}, per_scenario={},
                           groups=groups)
     assert {r["group"] for r in su.method_rows(srep)} == {"development", "heldout"}
+
+
+def test_report_paths_never_show_the_home_folder():
+    from depscan.config import PROJECT_ROOT
+    from depscan.evaluate import shown_path
+    assert shown_path(PROJECT_ROOT / "results" / "x.json") == "results/x.json"
+    assert shown_path(Path.home() / "some-repo" / ".depscan" / "expected.yaml") == "~/some-repo/.depscan/expected.yaml"
+    assert Path.home().name not in shown_path(Path.home() / "a" / "b.yaml")

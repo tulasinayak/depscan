@@ -1,7 +1,7 @@
 # depscan evaluation: depscan-test-reachability
 
-- result: `C:\Users\Tulasi Nayak\vul_ai\results\depscan-test-reachability_20260925-123947.json`
-- expected: `C:\Users\Tulasi Nayak\depscan-test-reachability\.depscan\expected.yaml`
+- result: `results/depscan-test-reachability_20260925-123947.json`
+- expected: `~/depscan-test-reachability/.depscan/expected.yaml`
 - generated: 2026-09-25 12:42 UTC
 
 ## Summary

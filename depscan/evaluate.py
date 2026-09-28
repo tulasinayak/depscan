@@ -358,9 +358,21 @@ def md_table(rows: list[dict]) -> list[str]:
             + ["| " + " | ".join(str(r[c]) for c in cols) + " |" for r in rows])
 
 
+def shown_path(path) -> str:
+    """A path for a report that may be shared: relative to the project, else ~/... (never the user's name)."""
+    from depscan.config import PROJECT_ROOT
+    p = Path(str(path))
+    for base, prefix in ((PROJECT_ROOT, ""), (Path.home(), "~/")):
+        try:
+            return prefix + p.resolve().relative_to(base.resolve()).as_posix()
+        except (ValueError, OSError):
+            continue
+    return p.as_posix()
+
+
 def to_markdown(rep: EvalReport) -> str:
     out = [f"# depscan evaluation: {rep.repo}", "",
-           f"- result: `{rep.result_file}`", f"- expected: `{rep.expected_file}`",
+           f"- result: `{shown_path(rep.result_file)}`", f"- expected: `{shown_path(rep.expected_file)}`",
            f"- generated: {rep.created_at:%Y-%m-%d %H:%M} UTC", "", "## Summary", ""]
     out += md_table([mode_row(MODE_LABELS[m], s) for m, s in rep.modes.items()])
     out += ["", "decided accuracy = right answers among firm (affected / not affected) answers; coverage = share of "
