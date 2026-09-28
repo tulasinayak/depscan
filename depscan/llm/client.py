@@ -74,6 +74,37 @@ class RateLimiter:
             waited += pause
 
 
+def _error_details(e: Exception) -> list[dict]:
+    """google.rpc details from an OpenAI-compatible error body (Gemini puts quota info there)."""
+    body = getattr(e, "body", None)
+    items = body if isinstance(body, list) else [body]
+    out = []
+    for item in items:
+        err = item.get("error", item) if isinstance(item, dict) else None
+        if isinstance(err, dict):
+            out += [d for d in err.get("details", []) or [] if isinstance(d, dict)]
+    return out
+
+
+def quota_failure(e: Exception, kind: str) -> str:
+    """'20 requests per day for gemini-3.8-flash' when a quota of that kind (e.g. PerDay) is exhausted, else ''."""
+    for d in _error_details(e):
+        for v in d.get("violations", []) or []:
+            if kind in str(v.get("quotaId", "")):
+                model = (v.get("quotaDimensions") or {}).get("model", "")
+                return f"limit {v.get('quotaValue', '?')} ({v.get('quotaId')})" + (f" for {model}" if model else "")
+    return ""
+
+
+def retry_delay(e: Exception) -> str:
+    """Seconds from a google.rpc.RetryInfo detail ("16s" -> "16"), else ''."""
+    for d in _error_details(e):
+        delay = str(d.get("retryDelay", ""))
+        if delay.endswith("s") and delay[:-1].replace(".", "", 1).isdigit():
+            return delay[:-1]
+    return ""
+
+
 def resolve_key(cfg: LLMConfig) -> str:
     """The API key: from the named environment variable when api_key_env is set (never stored), else the config."""
     if cfg.api_key_env:
@@ -194,11 +225,15 @@ class LLMClient:
             try:
                 return self.client.chat.completions.create(**kwargs)
             except (openai.RateLimitError, openai.InternalServerError) as e:
+                daily = quota_failure(e, "PerDay")
+                if daily:
+                    raise LLMUnavailable(f"The daily free quota of {self.model} is used up ({daily}); retrying today "
+                                         "will not help.", detail=str(e)[:500]) from e
                 if attempt == self.cfg.max_retries_429:
                     raise
                 headers = getattr(getattr(e, "response", None), "headers", None) or {}
                 try:
-                    pause = float(headers.get("retry-after", ""))
+                    pause = float(headers.get("retry-after", "") or retry_delay(e))
                 except ValueError:
                     pause = min(60.0, 2.0 ** (attempt + 1))
                 code = getattr(e, "status_code", 429)

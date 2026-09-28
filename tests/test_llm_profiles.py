@@ -225,3 +225,24 @@ def test_specs_command_writes_one_variant_without_running_checks(tmp_path):
     assert again["generated"] == 0 and again["cached"] == first["generated"]            # reruns use no calls
     result = orch.load(sorted((tmp_path / "results").glob("*.json"))[-1])
     assert not any(v.verdicts for dv in result.vulnerabilities for v in dv.vulnerabilities)   # no checks ran
+
+
+def gemini_429(quota_id: str, delay: str = "16s") -> openai.RateLimitError:
+    body = [{"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "details": [
+        {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [
+            {"quotaId": quota_id, "quotaValue": "20", "quotaDimensions": {"model": "gemini-3.8-flash"}}]},
+        {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": delay}]}}]
+    return openai.RateLimitError("quota", response=httpx.Response(429, request=httpx.Request("POST", "https://x")),
+                                 body=body)
+
+
+def test_daily_quota_stops_at_once_and_retry_delay_is_used():
+    slept = []
+    daily = LLMClient(LLMConfig(profile="t"), client=Flaky([gemini_429("GenerateRequestsPerDayPerProjectPerModel")]),
+                      sleep=slept.append)
+    with pytest.raises(LLMUnavailable, match="daily free quota"):
+        daily.complete_json("T", "s", "u", Answer)
+    assert slept == []                                                      # no pointless retries
+    minute = LLMClient(LLMConfig(profile="t"), client=Flaky([gemini_429("GenerateRequestsPerMinute", "7s")]),
+                       sleep=slept.append)
+    assert minute.complete_json("T", "s", "u", Answer)[0].answer == "ok" and slept == [7.0]
