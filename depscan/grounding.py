@@ -189,7 +189,12 @@ class ApiIndex:
         if hit:
             return hit, "exact"
         parts = symbol.split(".")
-        if parts[0].lower() in dist_names or parts[0].lower() not in {t.lower() for t in self.top_level}:
+        # Only this package's own names are rewritten: its import names (any casing) or its distribution name.
+        # A symbol rooted in another package (requests.PoolManager in a urllib3 spec) is never moved onto this one.
+        own = parts[0].lower() in {t.lower() for t in self.top_level} or parts[0].lower() in dist_names
+        if not own:
+            return None, "belongs to another package"
+        if parts[0].lower() in dist_names and parts[0] not in self.top_level:
             for top in self.top_level:
                 for cand in (".".join([top, *parts[1:]]), ".".join([top, *parts])):
                     hit = self.canonical(cand)
@@ -652,6 +657,9 @@ def validate_spec(spec: TriggerSpec, idx: ApiIndex | None) -> TriggerSpec:
                 kept.append(public)
                 if public != s:
                     issues.append(f"{what} {s!r} -> {public!r} ({how})")
+                continue
+            if how == "belongs to another package":
+                issues.append(f"{what} {s!r} dropped: it is not in {idx.package} (another package's name)")
                 continue
             ok, why = idx.verifiable(as_import_name(s))
             if not ok:

@@ -143,3 +143,16 @@ wrong not affected) when the analysis could not actually know.
 - **More dynamic dispatch gives unknown.** `eval` / `exec` / `compile` of non-constant code, and
   `module.__dict__[name]` with a computed name, now count as dynamic dispatch, like computed `getattr` already did.
   A function nothing references directly is then unknown, not unreachable.
+
+## 2026-09-28: T5 spec validation fix (grounded variants only)
+
+Found by `tests/test_gate_rules.py`. The six-gate status rules were checked exhaustively: all 46,656 combinations of
+pass/fail/unknown × code/AI match the documented rules, with no change needed.
+
+- **A symbol rooted in another package was silently rewritten onto this one.** When a spec named e.g.
+  `requests.PoolManager` for a urllib3 advisory, validation replaced the root with the package's import name, or found
+  a unique match by the last name part, and kept `urllib3.PoolManager`. Now only the package's own names are
+  resolved: its import names in any casing, and its distribution name (`Pillow.Image` → `PIL.Image`). Symbols rooted
+  in another package are dropped, with the reason in `validation_issues`.
+- **Effect on the running qwen llm+facts spec run.** That run was started before this fix. Its specs record every
+  rewrite in `validation_issues`, so the affected ones will be found and corrected before the 4-variant comparison.
