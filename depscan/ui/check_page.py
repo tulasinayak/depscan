@@ -165,6 +165,34 @@ def finish_running(result: ScanResult) -> None:
         st.session_state["check_queue"] = queue[1:]
 
 
+# ---------------------------------------------------------------- problems worth telling the user
+
+LOOKUP_FAILED = ("OSV query failed", "OSV fetch failed", "OSV unreachable", "offline: no cached")
+LIMITS = ("very large", "over the size limit", "symbolic link", "outside the repository")
+
+
+def notices(result: ScanResult, all_rows: list[plain.Row]) -> None:
+    """Plain warnings for problems that make the answer incomplete; the details stay one click away."""
+    failed = [w for w in result.warnings if any(k in w for k in LOOKUP_FAILED)]
+    if failed:
+        st.warning("Some known-vulnerability lookups failed (the vulnerability database could not be reached, or "
+                   "offline mode had no saved answer), so this list may be incomplete. Scan again when online.")
+        with st.expander(f"Details ({len(failed)})"):
+            st.code("\n".join(failed[:50]), language=None)
+    if not result.repo.dependencies:
+        st.info("No dependency files were found (requirements*.txt, pyproject.toml, Pipfile, poetry.lock, "
+                "Pipfile.lock, uv.lock), so there is nothing to check.")
+    unreachable = [r for r in all_rows if r.record and any("Cannot reach the LLM" in g.explanation
+                                                           for g in r.record.gates)]
+    if unreachable:
+        st.warning(f"The AI model could not be reached during {len(unreachable)} check"
+                   f"{'s' if len(unreachable) != 1 else ''}, so steps that needed it stayed open (Needs review). "
+                   "Start Ollama, or pick another model on the Advanced page, then press Re-check.")
+    limited = [w for w in result.warnings if any(k in w for k in LIMITS)]
+    if limited:
+        st.caption("Some files were not read: " + " ".join(limited[:3]))
+
+
 # ---------------------------------------------------------------- dependencies found
 
 def clear_package_filter() -> None:
@@ -260,6 +288,7 @@ def page(orch: Callable[[], Orchestrator]) -> None:
     finish_running(result)
     all_rows = plain.rows(result)
     summary(all_rows)
+    notices(result, all_rows)
     if not all_rows:
         dependencies(result, all_rows)
         return

@@ -80,7 +80,7 @@ class Config:
 
 
 def load_config(path: Path | None = None) -> Config:
-    path = path or PROJECT_ROOT / "config.toml"
+    path = path or Path(os.environ.get("DEPSCAN_CONFIG") or PROJECT_ROOT / "config.toml")
     data = tomllib.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     llm_data = {k: v for k, v in data.get("llm", {}).items() if k in LLMConfig.__dataclass_fields__}
     base = LLMConfig(**llm_data)
@@ -96,6 +96,7 @@ def load_config(path: Path | None = None) -> Config:
     llm.model = os.environ.get("DEPSCAN_LLM_MODEL", llm.model)
     llm.api_key = os.environ.get("DEPSCAN_LLM_API_KEY", llm.api_key)
     osv = OSVConfig(**data.get("osv", {}))
+    osv.base_url = os.environ.get("DEPSCAN_OSV_BASE_URL", osv.base_url)
     osv.offline = os.environ.get("DEPSCAN_OFFLINE", "1" if osv.offline else "0") == "1"
     osv.max_workers = max(1, min(osv.max_workers, 8))
     paths = data.get("paths", {})

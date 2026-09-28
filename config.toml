@@ -1,5 +1,6 @@
 # depscan configuration. Environment variables override these values:
-#   DEPSCAN_LLM_BASE_URL, DEPSCAN_LLM_MODEL, DEPSCAN_LLM_API_KEY, DEPSCAN_OFFLINE=1
+#   DEPSCAN_CONFIG (another config file), DEPSCAN_LLM_PROFILE, DEPSCAN_LLM_BASE_URL, DEPSCAN_LLM_MODEL,
+#   DEPSCAN_LLM_API_KEY, DEPSCAN_OSV_BASE_URL, DEPSCAN_OFFLINE=1
 
 [llm]
 # Shared settings; each [llm.profiles.<name>] below overrides them. Pick one with --profile (CLI), the Advanced page
