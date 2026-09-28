@@ -17,7 +17,7 @@ from playwright.sync_api import expect
 from gui_helpers import (open_advanced, DOWNLOADS, LLM_TIMEOUT_MS, REPO_URL, ROOT, dependency_table, log, main_text, metric_values,
                       open_expander, select_dependency, shot, vuln_expander, wait_idle)
 
-pytestmark = pytest.mark.real_llm
+pytestmark = [pytest.mark.gui, pytest.mark.llm]
 
 EXPECTED_USAGE = {"idna": "used directly", "jinja2": "used directly", "pygments": "used directly",
                   "pyyaml": "used directly", "requests": "used directly", "rsa": "not imported directly",

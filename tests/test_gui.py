@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+pytestmark = pytest.mark.slow                  # Streamlit AppTest: a few seconds each
+
 from depscan.config import LLMConfig
 from depscan.llm.client import LLMClient
 from depscan.ui import components

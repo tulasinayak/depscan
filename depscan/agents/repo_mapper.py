@@ -11,6 +11,8 @@ import git
 
 from depscan.models import Dependency, RepoMap, RepoMapperInput
 from depscan.parsers import PARSERS, ParsedEntry, find_parser
+from depscan.safety import (MAX_MANIFEST_BYTES, MAX_SOURCE_BYTES, MAX_SOURCE_FILES, MAX_WALK_ENTRIES,
+                             is_link, validate_repo_url)
 
 SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "__pycache__", "venv", ".venv", "env", ".env",
              "build", "dist", ".tox", ".nox", ".mypy_cache", ".pytest_cache", ".ruff_cache", "site-packages",
@@ -18,6 +20,7 @@ SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "__pycache__", "venv", ".ven
              ".depscan"}  # holds a repo's evaluation answers; must never reach any agent or prompt
 SOURCE_SUFFIXES = {".py"}
 CLONE_MARKER = "depscan-clone"  # written inside .git/ of every clone we create; only such dirs are ever deleted
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"   # git's built-in empty tree
 
 
 def parse_repo_url(url: str) -> tuple[str | None, str]:
@@ -49,8 +52,26 @@ def _force_remove(func, path, _exc):
 
 
 class RepoMapperAgent:
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, allow_file_urls: bool = False):
         self.workspace = workspace
+        self.allow_file_urls = allow_file_urls      # tests only: clone from a local file:// origin
+
+    def git_env(self) -> dict[str, str]:
+        """Environment for every git command on an untrusted remote: no hooks (not even the user's global ones), no
+        filters or LFS smudge (attributes are read from the empty tree), no submodules, symlinks checked out as plain
+        files, https only, never a password prompt."""
+        hooks = self.workspace / ".depscan-no-hooks"     # never created: git finds no hooks there
+        cfg = {"core.hooksPath": str(hooks), "core.symlinks": "false", "core.fsmonitor": "false",
+               "submodule.recurse": "false", "protocol.allow": "never", "protocol.https.allow": "always",
+               "filter.lfs.smudge": "", "filter.lfs.process": "", "filter.lfs.required": "false",
+               "credential.helper": ""}
+        if self.allow_file_urls:
+            cfg["protocol.file.allow"] = "always"
+        env = {"GIT_CONFIG_COUNT": str(len(cfg)), "GIT_ATTR_SOURCE": EMPTY_TREE, "GIT_LFS_SKIP_SMUDGE": "1",
+               "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"}
+        for i, (k, v) in enumerate(cfg.items()):
+            env[f"GIT_CONFIG_KEY_{i}"], env[f"GIT_CONFIG_VALUE_{i}"] = k, v
+        return env
 
     def run(self, inp: RepoMapperInput) -> RepoMap:
         warnings: list[str] = []
@@ -63,6 +84,8 @@ class RepoMapperAgent:
         if local.is_dir():
             # Local folders are only ever read: never cloned into, cleaned or deleted.
             return local.resolve(), local.resolve().name, _safe(local.resolve().name)
+        if not (self.allow_file_urls and url.startswith("file:")):
+            validate_repo_url(url)
         repo_name, slug = repo_name_from_url(url), clone_dir_name(url)
         self._clone(url, self.workspace / slug, warnings)
         return self.workspace / slug, repo_name, slug
@@ -73,15 +96,47 @@ class RepoMapperAgent:
 
         source_files: list[str] = []
         manifests: list[tuple[str, Path]] = []
-        for dirpath, dirnames, filenames in os.walk(repo_path):
-            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.endswith(".egg-info"))
+        seen, links, big, capped = 0, [], [], False
+        for dirpath, dirnames, filenames in os.walk(repo_path):     # never follows directory links
+            dir_links = [d for d in dirnames if is_link(Path(dirpath) / d)]
+            links += [(Path(dirpath) / d).relative_to(repo_path).as_posix() + "/" for d in dir_links]
+            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.endswith(".egg-info")
+                                 and d not in dir_links)
             for fn in sorted(filenames):
+                seen += 1
+                if seen > MAX_WALK_ENTRIES:
+                    capped = True
+                    break
                 path = Path(dirpath) / fn
                 rel = path.relative_to(repo_path).as_posix()
-                if path.suffix in SOURCE_SUFFIXES:
+                is_source, is_manifest = path.suffix in SOURCE_SUFFIXES, bool(find_parser(rel, PARSERS))
+                if not (is_source or is_manifest):
+                    continue
+                if is_link(path):
+                    links.append(rel)
+                    continue
+                size = path.stat().st_size
+                if size > (MAX_MANIFEST_BYTES if is_manifest else MAX_SOURCE_BYTES):
+                    big.append(f"{rel} ({size // 1024 // 1024} MB)")
+                    continue
+                if is_source:
+                    if len(source_files) >= MAX_SOURCE_FILES:
+                        capped = True
+                        continue
                     source_files.append(rel)
-                if find_parser(rel, PARSERS):
+                if is_manifest:
                     manifests.append((rel, path))
+            if capped and seen > MAX_WALK_ENTRIES:
+                break
+        if links:
+            warnings.append(f"Skipped {len(links)} symbolic link(s); links are never followed: "
+                            + ", ".join(links[:5]) + (" ..." if len(links) > 5 else ""))
+        if big:
+            warnings.append(f"Skipped {len(big)} file(s) over the size limit: " + ", ".join(big[:5])
+                            + (" ..." if len(big) > 5 else ""))
+        if capped:
+            warnings.append(f"The repository is very large: only the first {MAX_WALK_ENTRIES:,} files and "
+                            f"{MAX_SOURCE_FILES:,} Python files were looked at, so results may be incomplete.")
 
         parsed: list[tuple[str, int, list[ParsedEntry]]] = []
         included_by: dict[str, str] = {}
@@ -114,9 +169,10 @@ class RepoMapperAgent:
             if marker.read_text(encoding="utf-8").strip() == url:
                 try:
                     repo = git.Repo(dest)
-                    repo.remotes.origin.fetch(depth=1)
-                    repo.git.reset("--hard", "FETCH_HEAD")
-                    repo.git.clean("-fdx")
+                    with repo.git.custom_environment(**self.git_env()):
+                        repo.remotes.origin.fetch(depth=1)
+                        repo.git.reset("--hard", "FETCH_HEAD")
+                        repo.git.clean("-fdx")
                     return
                 except Exception as e:  # corrupt clone, rewritten history, ...: start over
                     if warnings is not None:
@@ -126,7 +182,7 @@ class RepoMapperAgent:
             else:
                 shutil.rmtree(dest, onerror=_force_remove)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        git.Repo.clone_from(url, dest, depth=1)
+        git.Repo.clone_from(url, dest, depth=1, multi_options=["--no-recurse-submodules"], env=self.git_env())
         marker.write_text(url, encoding="utf-8")
 
     @staticmethod

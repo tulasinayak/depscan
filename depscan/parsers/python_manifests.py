@@ -1,6 +1,7 @@
 """Parsers for Python manifests: requirements*.txt, pyproject.toml, Pipfile, poetry.lock, Pipfile.lock, uv.lock."""
 
 import json
+import os
 import posixpath
 import re
 import tomllib
@@ -9,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from packaging.requirements import InvalidRequirement, Requirement
 
 from depscan.parsers.base import ManifestParser, ParsedEntry, ParseOutput, Scope
+from depscan.safety import MAX_MANIFEST_BYTES, inside
 
 
 def normalize_name(name: str) -> str:
@@ -99,12 +101,15 @@ class RequirementsTxtParser(ManifestParser):
 
     def parse(self, path: Path, rel_path: str) -> ParseOutput:
         out = ParseOutput()
+        self.root = Path(os.path.abspath(path))
+        for _ in PurePosixPath(rel_path).parts:           # the repository root: rel_path is relative to it
+            self.root = self.root.parent
         self._parse_file(path, rel_path, out, kind="declared", seen=set())
         return out
 
     def _parse_file(self, path: Path, rel: str, out: ParseOutput, kind: str, seen: set[Path]) -> None:
         path = path.resolve()
-        if path in seen:
+        if path in seen:                                  # -r cycles (a includes b includes a) end here
             return
         seen.add(path)
         scope = requirements_scope(rel)
@@ -131,8 +136,15 @@ class RequirementsTxtParser(ManifestParser):
             if opt:  # followed relative to the including file
                 target_rel = posixpath.normpath(str(PurePosixPath(rel).parent / opt.group(2)))
                 target = path.parent / opt.group(2)
+                if not inside(self.root, target):          # ../../etc/passwd, absolute paths, links
+                    out.warnings.append(f"{rel}: referenced file {opt.group(2)} is outside the repository or a "
+                                        "link; not read")
+                    continue
                 if not target.exists():
                     out.warnings.append(f"{rel}: referenced file {opt.group(2)} not found")
+                    continue
+                if target.stat().st_size > MAX_MANIFEST_BYTES:
+                    out.warnings.append(f"{rel}: referenced file {opt.group(2)} is over the size limit; not read")
                     continue
                 is_constraint = opt.group(1) in ("-c", "--constraint")
                 self._parse_file(target, target_rel, out, "constraint" if is_constraint else kind, seen)

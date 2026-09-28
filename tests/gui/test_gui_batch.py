@@ -11,7 +11,7 @@ from playwright.sync_api import expect
 
 from gui_helpers import open_advanced, LLM_TIMEOUT_MS, ROOT, log, metric_values, shot, wait_idle
 
-pytestmark = pytest.mark.real_llm
+pytestmark = [pytest.mark.gui, pytest.mark.llm]
 PER_ANALYSIS_BUDGET_S = 8 * 60
 
 

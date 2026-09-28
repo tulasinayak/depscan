@@ -37,6 +37,8 @@ from depscan.parsers.python_manifests import normalize_name
 PYPI = "https://pypi.org/pypi"
 MAX_PACKAGE_BYTES = 50 * 1024 * 1024          # one archive per package, never more
 MAX_FILE_BYTES = 5 * 1024 * 1024              # a single member larger than this is skipped
+MAX_UNCOMPRESSED = 500 * 1024 * 1024          # declared sizes walked per archive: stops zip/tar bombs
+MAX_MEMBERS = 50_000                          # members looked at per archive
 MAX_RETRIEVED = 60
 INDEX_VERSION = 1
 STOP = set("the and for with that this from when into could can not are was were has have its via use used using "
@@ -62,9 +64,13 @@ def safe_member(name: str) -> str | None:
 def read_members(path: Path, want) -> Iterator[tuple[str, bytes]]:
     """(relative path, bytes) of the regular files `want(path)` accepts; unsafe or oversized members are skipped.
     Links (tar symlinks/hardlinks, zip entries with a symlink mode) are never followed."""
+    walked = 0
     if path.suffix == ".whl" or path.suffix == ".zip":
         with zipfile.ZipFile(path) as zf:
-            for info in zf.infolist():
+            for n, info in enumerate(zf.infolist()):
+                walked += info.file_size
+                if n >= MAX_MEMBERS or walked > MAX_UNCOMPRESSED:
+                    return                                 # a bomb or an absurd archive: stop, keep what we have
                 rel = safe_member(info.filename)
                 is_link = (info.external_attr >> 16) & 0o170000 == 0o120000
                 if rel is None or info.is_dir() or is_link or info.file_size > MAX_FILE_BYTES or not want(rel):
@@ -72,13 +78,23 @@ def read_members(path: Path, want) -> Iterator[tuple[str, bytes]]:
                 yield rel, zf.read(info)
         return
     with tarfile.open(path, "r:*") as tf:
-        for member in tf:
+        for n, member in enumerate(tf):
+            walked += member.size                          # skipping a member still decompresses it
+            if n >= MAX_MEMBERS or walked > MAX_UNCOMPRESSED:
+                return
             rel = safe_member(member.name)
             if rel is None or not member.isreg() or member.size > MAX_FILE_BYTES or not want(rel):
                 continue
             fh = tf.extractfile(member)
             if fh is not None:
                 yield rel, fh.read()
+
+
+def safe_filename(name: str) -> str | None:
+    """A release file name usable as a plain file name in the cache (no path parts, no odd characters)."""
+    if not name or name.startswith(".") or not re.fullmatch(r"[A-Za-z0-9._+-]+", name):   # no /, \ or ..-only
+        return None
+    return name
 
 
 def member_names(path: Path) -> list[str]:
@@ -388,7 +404,11 @@ class PackageSource:
         if not files:
             return None
         for f in self.candidates(files):
-            path = self.archives / f["filename"]
+            name = safe_filename(f.get("filename", ""))
+            if name is None or not str(f.get("url", "")).startswith("https://"):
+                self.log.append(f"skipped release file {f.get('filename')!r}: unsafe name or not https")
+                continue
+            path = self.archives / name
             if path.exists():
                 return path
             if self.offline:

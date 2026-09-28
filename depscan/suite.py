@@ -14,6 +14,7 @@ Verdicts saved by earlier runs for the same repo commit are carried over (reuse=
 ran is not run again and an interrupted run resumes; redo=True re-runs the chosen methods anyway.
 """
 
+import re
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -287,7 +288,7 @@ def generate_specs(orch: Orchestrator, spec: SuiteSpec, variant: str, log: Log =
     for repo in spec.repos:
         if not repo.analyze:
             continue
-        result = orch.scan(repo.url)
+        result = latest_result(orch, repo) or orch.scan(repo.url)
         todo = [(dv, v) for dv, v in all_vulns(result)]
         log(f"{repo.name}: {len(todo)} advisories")
         for i, (dv, v) in enumerate(todo, 1):
@@ -299,3 +300,16 @@ def generate_specs(orch: Orchestrator, spec: SuiteSpec, variant: str, log: Log =
                 log(f"  {i}/{len(todo)} {v.id} ({dv.dependency.name}): {key} in {time.perf_counter() - t:.0f}s"
                     + (f": {problem}" if problem else f", {len(got.trigger_symbols)} trigger symbols"))
     return counts
+
+
+def latest_result(orch: Orchestrator, repo: SuiteRepo) -> ScanResult | None:
+    """The newest saved scan of a suite repo, so spec generation needs no clone or fetch (safe next to a running
+    suite job that uses the same clones)."""
+    files = [p for p in orch.cfg.results.glob(f"*{repo.name}_*.json") if "_eval_" not in p.name
+             and re.fullmatch(rf"(.*__)?{re.escape(repo.name)}_\d{{8}}-\d{{6}}(-\d+)?\.json", p.name)]
+    for path in sorted(files, key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            return ScanResult.model_validate_json(path.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+    return None

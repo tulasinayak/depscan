@@ -14,7 +14,7 @@ from playwright.sync_api import expect
 from gui_helpers import (LLM_TIMEOUT_MS, ROW_HEIGHT, dependency_table, log, main_text, metric_values,
                          open_expander, shot, wait_idle)
 
-pytestmark = pytest.mark.real_llm
+pytestmark = [pytest.mark.gui, pytest.mark.llm]
 
 DEAD_CODE = "https://github.com/tulasinayak/depscan-test-dead-code"
 REACHABILITY = "https://github.com/tulasinayak/depscan-test-reachability"

@@ -188,6 +188,7 @@ def test_cli_privacy_notice_only_when_cloud_gets_repo_code(tmp_path, capsys):
         assert ("Don't use this for private code" in out) == shown, (profile, cmd)
 
 
+@pytest.mark.slow
 def test_gui_cloud_profile_needs_confirmation(tmp_path):
     from streamlit.testing.v1 import AppTest
     from depscan.ui import state
@@ -210,6 +211,7 @@ def test_overloaded_provider_is_retried(tmp_path):
     assert client.complete_json("T", "s", "u", Answer)[0].answer == "ok" and slept == [2.0, 4.0]
 
 
+@pytest.mark.slow
 def test_specs_command_writes_one_variant_without_running_checks(tmp_path):
     from depscan import suite as su
     from test_orchestrator import FIX, make_orch

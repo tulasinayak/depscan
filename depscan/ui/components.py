@@ -276,7 +276,7 @@ def context_card(result: ScanResult) -> None:
         md(f"<b>Repo context</b> &nbsp; {badge(ctx.app_type, ('#155eef', '#ffffff'))} "
            + "".join(badge(f, ("#eaecf0", "#344054")) for f in ctx.frameworks)
            + f"<br><small>background only, never used as evidence · generated {ctx.created_at:%Y-%m-%d %H:%M} UTC"
-           + (f" · summary by {ctx.model}" if ctx.model else "") + "</small>")
+           + (f" · summary by {html.escape(ctx.model)}" if ctx.model else "") + "</small>")
         if ctx.summary:
             st.markdown(f"_{ctx.summary}_")
         c1, c2 = st.columns(2)

@@ -17,6 +17,7 @@ from depscan.agents.usage_locator import _dotted, is_test_path
 from depscan.errors import DepscanError
 from depscan.llm.prompts import CONTEXT_SYSTEM, context_prompt
 from depscan.models import RepoContext, ScanResult, UsageRef
+from depscan.safety import MAX_MANIFEST_BYTES, inside, read_text
 
 WEB_FRAMEWORKS = {"flask", "django", "fastapi", "starlette", "tornado", "aiohttp", "sanic", "bottle", "pyramid",
                   "falcon", "quart", "litestar", "cherrypy", "web2py"}
@@ -102,16 +103,16 @@ def analyze_file(source: str, rel: str) -> dict:
 
 def console_scripts(repo: Path) -> list[str]:
     out = []
-    pyproject = repo / "pyproject.toml"
-    if pyproject.exists():
+    pyproject = read_text(repo, repo / "pyproject.toml", MAX_MANIFEST_BYTES)
+    if pyproject is not None:
         try:
-            data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+            data = tomllib.loads(pyproject)
             scripts = {**data.get("project", {}).get("scripts", {}), **data.get("tool", {}).get("poetry", {}).get("scripts", {})}
             out += [f"console_script {k} = {v}" for k, v in scripts.items()]
         except tomllib.TOMLDecodeError:
             pass
     setup_cfg = repo / "setup.cfg"
-    if setup_cfg.exists():
+    if setup_cfg.exists() and inside(repo, setup_cfg) and setup_cfg.stat().st_size < MAX_MANIFEST_BYTES:
         cp = configparser.ConfigParser()
         try:
             cp.read(setup_cfg, encoding="utf-8")
@@ -119,9 +120,8 @@ def console_scripts(repo: Path) -> list[str]:
             out += [f"console_script {line.strip()}" for line in raw.splitlines() if "=" in line]
         except configparser.Error:
             pass
-    setup_py = repo / "setup.py"
-    if setup_py.exists():  # read as text only, never executed
-        text = setup_py.read_text(encoding="utf-8", errors="replace")
+    text = read_text(repo, repo / "setup.py")         # read as text only, never executed
+    if text is not None:
         block = re.search(r"console_scripts['\"]\s*:\s*\[(.*?)\]", text, re.S)
         if block:
             out += [f"console_script {s}" for s in re.findall(r"['\"]([^'\"]+=[^'\"]+)['\"]", block.group(1))]
@@ -130,9 +130,9 @@ def console_scripts(repo: Path) -> list[str]:
 
 def readme_head(repo: Path, lines: int = 50) -> str:
     for name in ("README.md", "README.rst", "README.txt", "README", "readme.md"):
-        p = repo / name
-        if p.exists():
-            return "\n".join(p.read_text(encoding="utf-8", errors="replace").splitlines()[:lines])
+        text = read_text(repo, repo / name, MAX_MANIFEST_BYTES)
+        if text is not None:
+            return "\n".join(text.splitlines()[:lines])
     return ""
 
 
@@ -173,7 +173,7 @@ class RepoContextAgent:
         elif scripts or CLI_FRAMEWORKS & prod_imports - {"argparse"} or ("argparse" in prod_imports and main_blocks):
             app_type = "cli"
         elif (repo / "setup.py").exists() or (repo / "setup.cfg").exists() or \
-                "[project]" in ((repo / "pyproject.toml").read_text(encoding="utf-8") if (repo / "pyproject.toml").exists() else ""):
+                "[project]" in (read_text(repo, repo / "pyproject.toml", MAX_MANIFEST_BYTES) or ""):
             app_type = "library" if not main_blocks else "script"
         elif main_blocks:
             app_type = "script"

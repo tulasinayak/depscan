@@ -24,6 +24,7 @@ from pathlib import Path
 
 from depscan.agents.repo_context import APP_CLASSES, FACTORY_NAMES, REQUEST_INPUTS, ROUTE_METHODS, console_scripts
 from depscan.agents.repo_mapper import SKIP_DIRS
+from depscan.safety import read_text
 from depscan.agents.usage_locator import (
     MAX_REEXPORT_HOPS, _analyze, _dotted, _relative_base, is_test_path, module_bindings, module_name,
 )
@@ -237,10 +238,12 @@ class CodeIndex:
         chunks = []
         for path in sorted(self.root.rglob("*")) if self.root.exists() else []:
             rel = path.relative_to(self.root).parts
-            if any(p in SKIP_DIRS or p.endswith(".egg-info") for p in rel[:-1]) or not path.is_file():
+            if any(p in SKIP_DIRS or p.endswith(".egg-info") for p in rel[:-1]):
                 continue
-            if CONFIG_FILE.match(path.name) and path.stat().st_size < 200_000:
-                chunks.append(path.read_text(encoding="utf-8", errors="replace"))
+            if CONFIG_FILE.match(path.name):
+                text = read_text(self.root, path, 200_000)     # never through a link, never outside the repo
+                if text is not None:
+                    chunks.append(text)
         return "\n".join(chunks)
 
     def _load(self, files: list[str]) -> None:

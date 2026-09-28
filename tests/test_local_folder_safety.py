@@ -67,13 +67,14 @@ def test_url_never_deletes_a_folder_depscan_did_not_create(tmp_path, no_clone):
     assert snapshot(project) == before
 
 
+@pytest.mark.slow
 def test_existing_clone_is_updated_with_fetch_and_reset(tmp_path, monkeypatch):
     origin = git.Repo.init(tmp_path / "origin")
     (tmp_path / "origin" / "requirements.txt").write_text("pyyaml==5.3\n")
     origin.index.add(["requirements.txt"])
     origin.index.commit("first", author=git.Actor("t", "t@t"), committer=git.Actor("t", "t@t"))
     url = (tmp_path / "origin").as_uri()                          # file:///... -> treated as a remote, not a folder
-    agent = RepoMapperAgent(workspace=tmp_path / "workspace")
+    agent = RepoMapperAgent(workspace=tmp_path / "workspace", allow_file_urls=True)   # file:// only in tests
     first = agent.run(RepoMapperInput(url=url))
 
     (tmp_path / "origin" / "requirements.txt").write_text("pyyaml==6.0.1\n")
@@ -92,7 +93,7 @@ def test_url_replaces_only_its_own_previous_clone(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     cloned: list[str] = []
 
-    def fake_clone(url, dest, depth):
+    def fake_clone(url, dest, depth, **kw):
         cloned.append(url)
         make_project(Path(dest))
 

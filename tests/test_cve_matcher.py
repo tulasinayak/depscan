@@ -242,6 +242,7 @@ def test_pagination_follows_next_page_token(tmp_path):
     assert sum(1 for m, p, _ in fake.calls if p == "/v1/querybatch") == 6   # 18 ids / 3 per page
 
 
+@pytest.mark.slow
 def test_batches_are_at_most_1000_queries(tmp_path):
     fake = FakeOSV()
     run(matcher(tmp_path, fake), *[dep(f"pkg{i}", "1.0") for i in range(1500)])

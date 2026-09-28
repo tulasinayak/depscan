@@ -36,6 +36,8 @@ def key() -> bytes:
     return value.encode()
 
 
+@pytest.mark.security
+@pytest.mark.slow
 @pytest.mark.parametrize("folder", WATCHED)
 def test_gemini_key_never_written_to_disk(key, folder):
     base = ROOT / folder
@@ -45,12 +47,15 @@ def test_gemini_key_never_written_to_disk(key, folder):
     assert not leaks, f"the GEMINI_API_KEY value appears in: {leaks}"
 
 
+@pytest.mark.security
+@pytest.mark.slow
 def test_gemini_key_not_in_tracked_files(key):
     files = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True).stdout.split(b"\0")
     leaks = [f.decode() for f in files if f and contains(ROOT / f.decode(), key)]
     assert not leaks, f"the GEMINI_API_KEY value appears in tracked files: {leaks}"
 
 
+@pytest.mark.security
 def test_the_check_itself_finds_a_planted_value(tmp_path):
     (tmp_path / "a.log").write_bytes(b"x" * (CHUNK - 3) + b"PLANTED-SECRET-123" + b"y" * 10)
     assert contains(tmp_path / "a.log", b"PLANTED-SECRET-123")                 # across a chunk boundary

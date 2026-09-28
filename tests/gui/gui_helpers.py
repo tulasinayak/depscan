@@ -1,7 +1,7 @@
 """Shared helpers for the real-browser GUI runs (Playwright + a running `streamlit run app.py`).
 
-These tests use the real local model and take many minutes, so they are marked `real_llm` and excluded from
-the normal suite. Run them with:  uv run pytest -m real_llm tests/gui -s
+These tests use the real local model and take many minutes, so they are marked `gui` and `llm` and excluded from
+the normal suite. Run them with:  uv run pytest -m gui tests/gui -s
 They reuse a GUI already running on http://localhost:8501, or start one for the session.
 """
 

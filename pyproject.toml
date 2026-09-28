@@ -18,8 +18,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.168.3",
+    "libcst>=1.9.0",
     "playwright==1.62.0",
     "pytest>=8",
+    "pytest-cov>=7.1.0",
 ]
 
 [build-system]
@@ -32,5 +35,14 @@ packages = ["depscan"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["fixtures", "screenshots"]
-addopts = "-m 'not real_llm'"
-markers = ["real_llm: slow end-to-end GUI runs against a real local model (run with: pytest -m real_llm tests/gui)"]
+addopts = "-m fast --cov=depscan --cov-report=term"
+markers = [
+    "fast: offline, no LLM, < 1 s each (the default; unmarked tests get it automatically)",
+    "slow: offline but slower (Streamlit AppTest, big inputs, performance); pytest -m slow",
+    "network: needs the internet (PyPI, OSV, GitHub); pytest -m network",
+    "llm: needs a running model (local Ollama or a cloud profile); pytest -m llm",
+    "gui: real browser runs with Playwright against a running app; pytest -m gui tests/gui",
+    "security: depscan's own safety against malicious repos and packages (also fast unless marked slow)",
+    "metamorphic: meaning-preserving / meaning-changing code transformations (also fast unless marked slow)",
+    "realworld: real public projects, scanned and checked; pytest -m realworld",
+]
