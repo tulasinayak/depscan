@@ -1,6 +1,6 @@
 # Metamorphic test report (T6)
 
-Generated 2026-09-28T10:26:41.876344+00:00. No LLM: only code-decided results are compared. OSV answers come from the cache; held-out repos are never used.
+Generated 2026-09-28T11:19:50.574044+00:00. No LLM: only code-decided results are compared. OSV answers come from the cache; held-out repos are never used.
 
 - variants generated: 277 (applied: 218; the rest had no suitable target)
 - repos: depscan-heldout-1 (9 advisories), depscan-heldout-2 (10 advisories), depscan-test-dead-code (5 advisories), depscan-test-indirection (6 advisories), depscan-test-monorepo (1 advisories), depscan-test-native-reachable (29 advisories), depscan-test-native-unreachable (29 advisories), depscan-test-reachability (15 advisories), depscan-test-safe-args (4 advisories), depscan-test-transitive (10 advisories), depscan-test-unsafe-args (4 advisories)
