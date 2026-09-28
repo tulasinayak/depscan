@@ -2,18 +2,35 @@
 #   DEPSCAN_LLM_BASE_URL, DEPSCAN_LLM_MODEL, DEPSCAN_LLM_API_KEY, DEPSCAN_OFFLINE=1
 
 [llm]
-# Any OpenAI-compatible endpoint. Default: local Ollama.
-base_url = "http://localhost:11434/v1"
-model = "qwen3:8b"
-api_key = "ollama"          # Ollama ignores it; hosted endpoints need a real key (prefer the env var)
-reasoning_effort = "none"   # turns qwen3 thinking off via the OpenAI API; "" = don't send the parameter
+# Shared settings; each [llm.profiles.<name>] below overrides them. Pick one with --profile (CLI), the Advanced page
+# (GUI) or DEPSCAN_LLM_PROFILE.
+default_profile = "local_qwen"
+reasoning_effort = "none"   # thinking off (qwen3 via Ollama; Gemini Flash); "" = don't send the parameter
 json_mode = true            # response_format = json_object
 temperature = 0.1
 timeout_seconds = 900
-# Context window of the served model. Ollama's OpenAI endpoint uses the server default of 4096 tokens;
-# start Ollama with OLLAMA_CONTEXT_LENGTH=8192 and raise this to fit more snippets per prompt.
-max_context_tokens = 8192
 max_output_tokens = 900
+
+[llm.profiles.local_qwen]
+# Local Ollama (default). Start it with OLLAMA_CONTEXT_LENGTH=8192 to match max_context_tokens.
+base_url = "http://localhost:11434/v1"
+model = "qwen3:8b"
+api_key = "ollama"          # Ollama ignores it
+max_context_tokens = 8192
+
+[llm.profiles.gemini]
+# Google Gemini through its OpenAI-compatible endpoint (free tier). The key is read from the GEMINI_API_KEY
+# environment variable when needed and is never written anywhere.
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+api_key = ""
+api_key_env = "GEMINI_API_KEY"
+model = "auto:flash"        # the newest stable "flash" model listed by the provider's models endpoint
+cloud = true                # repo code is only sent after the privacy notice is confirmed
+max_context_tokens = 1000000
+timeout_seconds = 120
+requests_per_minute = 8     # below the free-tier limit
+tokens_per_minute = 200000
+cache_responses = true      # identical requests are replayed from the cache, so reruns use no quota
 
 [osv]
 base_url = "https://api.osv.dev"

@@ -645,4 +645,5 @@ class StepwiseAgent:
             llm_called=self.calls > 0, duration_ms=int((time.perf_counter() - start) * 1000),
             timestamp=datetime.now(timezone.utc), notes=notes, method="stepwise", gates=gates, reason=reason,
             llm_calls=self.calls, spec_source=spec.source if spec else "none", status=outcome,
-            spec_variant=self.store.variant)
+            spec_variant=self.store.variant,
+            provider=self.llm.cfg.profile if self.llm is not None and self.calls else None)

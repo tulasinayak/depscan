@@ -5,7 +5,9 @@
 - every call is appended to logs/llm_calls.jsonl (agent, prompt, raw response, parsed result, duration)
 """
 
+import hashlib
 import json
+import os
 import re
 import threading
 import time
@@ -45,35 +47,122 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+class RateLimiter:
+    """Requests per minute and (estimated) tokens per minute over a sliding 60 s window."""
+
+    def __init__(self, rpm: float, tpm: float, clock=time.monotonic, sleep=time.sleep):
+        self.rpm, self.tpm, self.clock, self.sleep = rpm, tpm, clock, sleep
+        self.events: list[tuple[float, int]] = []
+        self._lock = threading.Lock()
+
+    def wait(self, tokens: int, on_wait=None) -> float:
+        """Block until one more request of `tokens` fits; returns the seconds waited."""
+        waited = 0.0
+        while True:
+            with self._lock:
+                now = self.clock()
+                self.events = [(t, n) for t, n in self.events if now - t < 60]
+                over_r = self.rpm and len(self.events) + 1 > self.rpm
+                over_t = self.tpm and sum(n for _, n in self.events) + tokens > self.tpm and self.events
+                if not (over_r or over_t):
+                    self.events.append((now, tokens))
+                    return waited
+                pause = max(0.5, 60 - (now - self.events[0][0]) + 0.1)
+            if on_wait:
+                on_wait(f"waiting for rate limit ({pause:.0f}s)")
+            self.sleep(pause)
+            waited += pause
+
+
+def resolve_key(cfg: LLMConfig) -> str:
+    """The API key: from the named environment variable when api_key_env is set (never stored), else the config."""
+    if cfg.api_key_env:
+        return os.environ.get(cfg.api_key_env, "")
+    return cfg.api_key or "none"
+
+
+def pick_model(ids: list[str], family: str) -> str | None:
+    """The newest stable model whose name contains `family` (e.g. "flash"): no lite/preview/experimental/tts/image/
+    audio/live/embedding variants; highest version number first."""
+    skip = ("lite", "preview", "exp", "tts", "image", "audio", "live", "embedding", "thinking", "latest", "vision")
+    names = [i.removeprefix("models/") for i in ids]
+    ok = [n for n in names if family in n and n.startswith("gemini") and not any(s in n for s in skip)] or \
+         [n for n in names if family in n and not any(s in n for s in ("tts", "image", "audio", "live", "embedding"))]
+    if not ok:
+        return None
+    def version(n: str) -> tuple:
+        return tuple(float(x) for x in re.findall(r"\d+(?:\.\d+)?", n)[:2]) or (0,)
+    return max(ok, key=lambda n: (version(n), -len(n)))
+
+
 class LLMClient:
-    def __init__(self, cfg: LLMConfig, log_path: Path | None = None, client=None):
+    def __init__(self, cfg: LLMConfig, log_path: Path | None = None, client=None, response_cache=None,
+                 sleep=time.sleep):
         self.cfg = cfg
         self.log_path = log_path
-        self.client = client or openai.OpenAI(base_url=cfg.base_url, api_key=cfg.api_key or "none",
+        self.response_cache = response_cache if cfg.cache_responses else None
+        self.sleep = sleep
+        self.on_wait = None                     # callback(str): "waiting for rate limit (12s)", for progress displays
+        self.status = ""
+        key = resolve_key(cfg)
+        self._missing_key = bool(cfg.api_key_env and not key and client is None)
+        self.client = client or openai.OpenAI(base_url=cfg.base_url, api_key=key or "missing",
                                               timeout=cfg.timeout_seconds, max_retries=0)
+        del key                                 # only the SDK client keeps it, in memory
         self._send_reasoning = bool(cfg.reasoning_effort)
         self._lock = threading.Lock()
+        self._model = None if cfg.model.startswith("auto:") else cfg.model
+        self.limiter = RateLimiter(cfg.requests_per_minute, cfg.tokens_per_minute, sleep=sleep) \
+            if (cfg.requests_per_minute or cfg.tokens_per_minute) else None
 
     @property
     def model(self) -> str:
-        return self.cfg.model
+        if self._model is None:
+            family = self.cfg.model.split(":", 1)[1]
+            chosen = pick_model(self.list_models(), family)
+            if chosen is None:
+                raise LLMUnavailable(f"No {family!r} model is listed by {self.cfg.base_url}.")
+            self._model = chosen
+        return self._model
+
+    def _wait_status(self, text: str) -> None:
+        self.status = text
+        if self.on_wait:
+            self.on_wait(text)
 
     # ------------------------------------------------------------ raw call
 
+    def _cache_key(self, kwargs: dict) -> str:
+        body = json.dumps({"profile": self.cfg.profile, **{k: v for k, v in kwargs.items()}}, sort_keys=True)
+        return "llm:" + hashlib.sha256(body.encode()).hexdigest()
+
     def _call(self, messages: list[dict], json_mode: bool, max_tokens: int) -> tuple[str, dict]:
-        kwargs = dict(model=self.cfg.model, messages=messages, temperature=self.cfg.temperature, max_tokens=max_tokens)
+        if self._missing_key:
+            raise LLMUnavailable(f"The {self.cfg.profile} profile needs the environment variable "
+                                 f"{self.cfg.api_key_env}, which is not set.")
+        kwargs = dict(model=self.model, messages=messages, temperature=self.cfg.temperature, max_tokens=max_tokens)
         if json_mode and self.cfg.json_mode:
             kwargs["response_format"] = {"type": "json_object"}
         if self._send_reasoning:
             kwargs["reasoning_effort"] = self.cfg.reasoning_effort
+        key = self._cache_key(kwargs) if self.response_cache is not None else None
+        if key:
+            hit = self.response_cache.get(key)
+            if hit:
+                raw, meta = hit[0]["raw"], hit[0]["meta"]
+                return raw, {**meta, "cached": True}
+        if self.limiter:
+            waited = self.limiter.wait(estimate_tokens(json.dumps(messages)) + max_tokens, self._wait_status)
+            if waited:
+                self._wait_status("")
         start = time.perf_counter()
         try:
-            resp = self.client.chat.completions.create(**kwargs)
+            resp = self._create_with_retries(kwargs)
         except openai.BadRequestError as e:
             if self._send_reasoning and "reasoning" in str(e).lower():
                 self._send_reasoning = False            # endpoint does not know reasoning_effort: drop it
                 return self._call(messages, json_mode, max_tokens)
-            raise LLMUnavailable(f"The LLM endpoint rejected the request ({self.cfg.model}).", detail=str(e)) from e
+            raise LLMUnavailable(f"The LLM endpoint rejected the request ({self.model}).", detail=str(e)) from e
         except openai.NotFoundError as e:
             raise LLMUnavailable(f"Model {self.cfg.model!r} is not available at {self.cfg.base_url}. "
                                  f"For Ollama run: ollama pull {self.cfg.model}", detail=str(e)) from e
@@ -83,7 +172,8 @@ class LLMClient:
             raise LLMUnavailable(f"Cannot reach the LLM at {self.cfg.base_url}. Is Ollama running (`ollama serve`)?",
                                  detail=str(e)) from e
         except openai.RateLimitError as e:
-            raise LLMUnavailable("The LLM endpoint is rate-limiting requests; try again later.", detail=str(e)) from e
+            raise LLMUnavailable(f"The LLM endpoint is still rate-limiting after {self.cfg.max_retries_429} retries; "
+                                 "try again later.", detail=str(e)) from e
         except openai.APIStatusError as e:
             raise LLMUnavailable(f"The LLM endpoint returned HTTP {e.status_code}.", detail=str(e)) from e
         duration_ms = int((time.perf_counter() - start) * 1000)
@@ -91,14 +181,35 @@ class LLMClient:
         usage = getattr(resp, "usage", None)
         meta = {"duration_ms": duration_ms, "finish_reason": getattr(choice, "finish_reason", None),
                 "prompt_tokens": getattr(usage, "prompt_tokens", None),
-                "completion_tokens": getattr(usage, "completion_tokens", None)}
-        return choice.message.content or "", meta
+                "completion_tokens": getattr(usage, "completion_tokens", None), "profile": self.cfg.profile}
+        raw = choice.message.content or ""
+        if key and raw:
+            self.response_cache.put(key, {"raw": raw, "meta": meta})
+        return raw, meta
+
+    def _create_with_retries(self, kwargs: dict):
+        """HTTP 429: wait for Retry-After when the server sends it, else back off exponentially (2, 4, 8 ... 60 s)."""
+        for attempt in range(self.cfg.max_retries_429 + 1):
+            try:
+                return self.client.chat.completions.create(**kwargs)
+            except openai.RateLimitError as e:
+                if attempt == self.cfg.max_retries_429:
+                    raise
+                headers = getattr(getattr(e, "response", None), "headers", None) or {}
+                try:
+                    pause = float(headers.get("retry-after", ""))
+                except ValueError:
+                    pause = min(60.0, 2.0 ** (attempt + 1))
+                self._wait_status(f"waiting for rate limit ({pause:.0f}s, HTTP 429)")
+                self.sleep(pause)
+                self._wait_status("")
 
     def _log(self, record: dict) -> None:
         if not self.log_path:
             return
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        record = {"timestamp": datetime.now(timezone.utc).isoformat(), "model": self.cfg.model, **record}
+        record = {"timestamp": datetime.now(timezone.utc).isoformat(), "model": self._model or self.cfg.model,
+                  "profile": self.cfg.profile, **record}
         with self._lock, self.log_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record, default=str) + "\n")
 
@@ -127,7 +238,7 @@ class LLMClient:
                        "parsed": parsed.model_dump(), "error": None, **meta})
             return parsed, {**meta, "duration_ms": total_ms, "attempts": attempt,
                             "prompt_tokens_estimate": estimate_tokens(system + user)}
-        raise LLMOutputError(f"The model did not return valid JSON after a retry ({self.cfg.model}).", detail=error)
+        raise LLMOutputError(f"The model did not return valid JSON after a retry ({self._model or self.cfg.model}).", detail=error)
 
     def complete_text(self, agent: str, system: str, user: str, max_tokens: int = 200) -> tuple[str, dict]:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]

@@ -91,7 +91,7 @@ class TriggerStore:
 
     def __init__(self, cache_dir: Path, overrides_dir: Path, http_cache: ResponseCache | None = None,
                  offline: bool = False, transport: httpx.BaseTransport | None = None, variant: str = "llm",
-                 source=None):
+                 source=None, spec_llm=None):
         """variant "llm": specs from the advisory and the fix diff (cache/triggers/). A "+facts" variant also puts
         facts from the package's API index into the prompt and validates the symbols against it (source: a
         grounding.PackageSource); each variant has its own cache folder, so they can be compared."""
@@ -99,6 +99,7 @@ class TriggerStore:
         folder = "triggers" if variant == "llm" else "triggers__" + re.sub(r"[^A-Za-z0-9]+", "_", variant).strip("_")
         self.cache_dir = Path(cache_dir) / folder
         self.source = source
+        self.spec_llm = spec_llm          # writes this variant's specs (e.g. the gemini profile); else the caller's
         self.overrides_dir = Path(overrides_dir) / "triggers"
         self.http_cache = http_cache
         self.offline = offline
@@ -145,6 +146,7 @@ class TriggerStore:
         """(spec, generated_now, problem). The override wins, then the cache, then one LLM call (if llm given).
         version: the installed version, whose API index grounds a "+facts" spec."""
         spec = self.override(vuln, package) or self.cached(vuln, package)
+        llm = self.spec_llm or llm
         if spec is not None or llm is None:
             return spec, False, "" if spec else "no trigger spec yet"
         try:
@@ -174,6 +176,7 @@ class TriggerStore:
                                          spec_prompt(vuln, package, "\n\n".join(diffs), facts),
                                          TriggerSpecLLM, max_tokens=1100)
         spec = TriggerSpec(**parsed.model_dump(), vuln_id=vuln.id, package=package, source="llm", model=llm.model,
+                           provider=llm.cfg.profile,
                            diff_used=used, created_at=datetime.now(timezone.utc), variant=self.variant,
                            changed_functions=changed)
         if self.grounded:

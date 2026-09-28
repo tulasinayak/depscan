@@ -69,7 +69,8 @@ def show_error(e: Exception) -> None:
             st.code(traceback.format_exc(), language=None)
 
 
-def run_with_elapsed(fn: Callable, label: str, track: str | None = None, item: tuple | None = None):
+def run_with_elapsed(fn: Callable, label: str, track: str | None = None, item: tuple | None = None,
+                     status: Callable[[], str] | None = None):
     """Run fn in a worker thread, updating an elapsed-time message every half second.
     fn must not touch st.* or st.session_state (no script context in the worker thread).
     track: a result file; the job stays registered in _INFLIGHT until a script run sees it finish."""
@@ -79,7 +80,9 @@ def run_with_elapsed(fn: Callable, label: str, track: str | None = None, item: t
     placeholder = st.empty()
     start = time.time()
     while not future.done():
-        placeholder.info(f"⏳ {label} — {int(time.time() - start)}s elapsed (CPU inference can take minutes)")
+        note = status() if status else ""
+        placeholder.info(f"⏳ {label} — {int(time.time() - start)}s elapsed" +
+                         (f" · {note}" if note else " (CPU inference can take minutes)"))
         time.sleep(0.5)
     placeholder.empty()
     if track:
@@ -382,7 +385,8 @@ def analyze_controls(result: ScanResult, dv: DependencyVulns, v: Vulnerability, 
         o = orch()  # resolve in the script thread: the worker thread cannot read st.session_state
         try:
             run_with_elapsed(lambda: o.analyze(result, v.id, bool(use_ctx), dv.dependency.key),
-                             f"Analyzing {v.id} with {o.cfg.llm.model}", track=result.result_file)
+                             f"Analyzing {v.id} with {o.cfg.llm.model}", track=result.result_file,
+                             status=o.llm_status)
             st.toast(f"{v.id}: {latest_verdict(v, method='holistic').verdict}")
         except Exception as e:  # noqa: BLE001 - shown to the user
             show_error(e)
@@ -509,7 +513,7 @@ def batch_panel(result: ScanResult, filters: Filters, orch: Callable[[], Orchest
             o = orch()
             try:
                 run_with_elapsed(lambda: o.analyze(result, vid, ctx, dep), f"{vid} ({dep})",
-                                 track=result.result_file, item=(dep, vid, ctx))
+                                 track=result.result_file, item=(dep, vid, ctx), status=o.llm_status)
             except Exception as e:  # noqa: BLE001
                 st.session_state["batch_queue"] = []
                 show_error(e)

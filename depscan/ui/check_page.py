@@ -60,7 +60,7 @@ def check_one(result: ScanResult, row: plain.Row, orch: Callable[[], Orchestrato
     o = orch()                     # resolved in the script thread: the worker thread cannot read session state
     try:
         run_with_elapsed(lambda: o.analyze(result, row.v.id, False, row.dv.dependency.key, method="stepwise"),
-                         f"Checking {row.v.id}", track=result.result_file, item=(row.dv.dependency.key, row.v.id))
+                         f"Checking {row.v.id}", track=result.result_file, item=(row.dv.dependency.key, row.v.id), status=o.llm_status)
         return True
     except Exception as e:  # noqa: BLE001
         show_error(e)
@@ -137,7 +137,7 @@ def check_all(result: ScanResult, all_rows: list[plain.Row], orch: Callable[[], 
     o = orch()
     try:
         run_with_elapsed(lambda: o.analyze(result, vid, False, dep, method="stepwise"), f"Checking {vid}",
-                         track=result.result_file, item=(dep, vid))
+                         track=result.result_file, item=(dep, vid), status=o.llm_status)
     except Exception as e:  # noqa: BLE001
         ss["check_queue"] = []
         show_error(e)

@@ -10,7 +10,6 @@ import streamlit as st
 
 from depscan.errors import DepscanError
 from depscan.evaluate import default_expected_path, expected_index, load_expected_file
-from depscan.llm.client import LLMClient
 from depscan.orchestrator import Orchestrator
 from depscan.ui import components as ui
 from depscan.ui.export import to_csv, to_markdown
@@ -47,13 +46,24 @@ with st.sidebar:
         st.caption("No saved results yet.")
 
     st.subheader("LLM")
+    names = list(state.BASE_CFG.profiles)
+    st.selectbox("Profile", names, key="llm_profile_pick", index=names.index(ss.llm_profile),
+                 format_func=lambda n: f"{n} (cloud)" if state.is_cloud(n) else f"{n} (local)",
+                 on_change=lambda: state.use_profile(ss.llm_profile_pick))
+    if state.is_cloud(ss.llm_profile) and not ss.cloud_ok:
+        st.warning(state.PRIVACY_NOTICE)
+        if st.button(f"I understand, use {ss.llm_profile}", width="stretch", key="cloud_confirm"):
+            ss["cloud_ok"] = True
+            st.rerun()
+        st.caption(f"Until then, analyses use {state.active_profile()}.")
     st.text_input("Base URL", key="llm_base_url")
-    st.text_input("Model", key="llm_model")
+    st.text_input("Model", key="llm_model", help='"auto:flash" = the newest stable flash model the provider lists')
     if st.button("Test connection", width="stretch"):
         try:
-            models = LLMClient(orchestrator().cfg.llm).list_models()
-            st.success(f"Connected. {len(models)} models: " + ", ".join(models))
-            if ss.llm_model not in models:
+            client = orchestrator().llm()
+            models = client.list_models()
+            st.success(f"Connected ({state.active_profile()}). {len(models)} models; using {client.model}.")
+            if not ss.llm_model.startswith("auto:") and ss.llm_model not in [m.removeprefix("models/") for m in models]:
                 st.warning(f"{ss.llm_model!r} is not in the list (for Ollama: ollama pull {ss.llm_model}).")
         except DepscanError as e:
             ui.show_error(e)

@@ -147,10 +147,30 @@ class Orchestrator:
     # ------------------------------------------------------------ steps 2 and 3
 
     def llm(self):
+        """The client of the selected profile (cfg.llm)."""
         if self._llm is None:
             from depscan.llm.client import LLMClient
-            self._llm = LLMClient(self.cfg.llm, log_path=self.cfg.logs / "llm_calls.jsonl")
+            self._llm = LLMClient(self.cfg.llm, log_path=self.cfg.logs / "llm_calls.jsonl",
+                                  response_cache=self._http_cache())
         return self._llm
+
+    def llm_status(self) -> str:
+        """What any LLM client is waiting for right now ("waiting for rate limit (12s)"), else ""."""
+        clients = [self._llm, *self.__dict__.get("_llms", {}).values()]
+        return next((c.status for c in clients if c is not None and getattr(c, "status", "")), "")
+
+    def llm_for(self, profile: str):
+        """The client of another profile (e.g. gemini for writing trigger specs), made once."""
+        if profile == self.cfg.llm.profile:
+            return self.llm()
+        clients = self.__dict__.setdefault("_llms", {})
+        if profile not in clients:
+            from depscan.llm.client import LLMClient
+            if profile not in self.cfg.profiles:
+                raise NotFound(f"No LLM profile {profile!r} in config.toml.")
+            clients[profile] = LLMClient(self.cfg.profiles[profile], log_path=self.cfg.logs / "llm_calls.jsonl",
+                                         response_cache=self._http_cache())
+        return clients[profile]
 
     def build_context(self, result: ScanResult, progress: Progress = _noop) -> ScanResult:
         from depscan.agents.repo_context import RepoContextAgent
@@ -184,8 +204,12 @@ class Orchestrator:
         variant = variant or self.cfg.grounding.spec_variant
         stores = self.__dict__.setdefault("_triggers", {})
         if variant not in stores:
+            # "gemini" / "gemini+facts": the spec is written by that profile, whatever answers the narrow questions
+            base = variant.split("+", 1)[0]
+            spec_llm = self.llm_for(base) if base != "llm" and base in self.cfg.profiles else None
             stores[variant] = TriggerStore(self.cfg.cache, self.cfg.overrides, self._http_cache(),
-                                           offline=self.cfg.osv.offline, variant=variant, source=self.packages())
+                                           offline=self.cfg.osv.offline, variant=variant, source=self.packages(),
+                                           spec_llm=spec_llm)
         return stores[variant]
 
     def code_index(self, result: ScanResult):

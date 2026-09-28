@@ -177,6 +177,7 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(prog="depscan")
     ap.add_argument("--verbose", action="store_true", help="show underlying error details")
+    ap.add_argument("--profile", help="LLM profile from config.toml (local_qwen, gemini, ...); default: default_profile")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("scan").add_argument("url")
     sub.add_parser("show").add_argument("result")
@@ -212,8 +213,11 @@ def main(argv: list[str] | None = None) -> int:
         group.add_argument("--no-context", dest="context", action="store_false")
         p.set_defaults(context=False)
     args = ap.parse_args(argv)
-    orch = Orchestrator()
     try:
+        from depscan.config import load_config
+        cfg = load_config()
+        orch = Orchestrator(cfg.with_profile(args.profile) if args.profile else cfg)
+        privacy_notice(args, orch)
         return run(args, orch)
     except DepscanError as e:
         console.print(f"[bold red]{escape(e.message)}[/]")
@@ -229,6 +233,17 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(e, BrokenPipeError) or getattr(e, "errno", None) == 22:
             return 0
         raise
+
+
+PRIVACY_NOTICE = ("Free-tier cloud APIs may use submitted code and prompts to improve their products, and humans may "
+                  "review them. Don't use this for private code.")
+
+
+def privacy_notice(args, orch: Orchestrator) -> None:
+    """Printed before a cloud profile receives repository code (holistic prompts, narrow questions, context)."""
+    sends_code = args.cmd in ("analyze", "analyze-all", "context") or (args.cmd == "evaluate-suite" and not args.no_llm)
+    if orch.cfg.llm.cloud and sends_code:
+        console.print(Panel(PRIVACY_NOTICE, title=f"{orch.cfg.llm.profile}: cloud model", style="yellow"))
 
 
 def run(args, orch: Orchestrator) -> int:

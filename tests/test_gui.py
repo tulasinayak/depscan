@@ -37,7 +37,8 @@ def app_with(orch, result, path: str = APP) -> AppTest:
     at.session_state["llm_base_url"], at.session_state["llm_model"] = orch.cfg.llm.base_url, orch.cfg.llm.model
     at.session_state["offline"] = False
     at.session_state["_orch"] = orch
-    at.session_state["_orch_key"] = (orch.cfg.llm.base_url, orch.cfg.llm.model, False)
+    at.session_state["llm_profile"] = orch.cfg.llm.profile
+    at.session_state["_orch_key"] = (orch.cfg.llm.profile, orch.cfg.llm.base_url, orch.cfg.llm.model, False)
     return at
 
 

@@ -104,6 +104,7 @@ class VerdictRecord(BaseModel):
     spec_source: Literal["llm", "human", "none"] | None = None   # stepwise: where the trigger spec came from
     status: Status | None = None       # stepwise: the four-way status (verdict keeps the 3-way value)
     spec_variant: str | None = None    # stepwise: which trigger specs were used (llm, llm+facts, ...)
+    provider: str | None = None        # the LLM profile that answered (local_qwen, gemini, ...)
 
 
 class EvidenceItem(BaseModel):
@@ -288,7 +289,8 @@ class TriggerSpec(TriggerSpecLLM):
     model: str | None = None
     diff_used: list[str] = []          # fix URLs whose diff was shown to the model
     created_at: datetime | None = None
-    variant: str = "llm"               # how it was made: llm | llm+facts (API facts in the prompt, validated)
+    variant: str = "llm"               # how it was made: llm | llm+facts | gemini | gemini+facts
+    provider: str | None = None        # the LLM profile that wrote it
     api_index: str | None = None       # the package archive the API index came from
     changed_functions: list[str] = []  # functions the fix diff changes, from the API index
     validation_issues: list[str] = []  # symbols resolved, dropped or kept unverified by the validation

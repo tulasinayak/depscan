@@ -21,6 +21,15 @@ class LLMConfig:
     # unless the server is started with OLLAMA_CONTEXT_LENGTH; prompts are trimmed to fit.
     max_context_tokens: int = 4096
     max_output_tokens: int = 900
+    profile: str = "local_qwen"          # which [llm.profiles.<name>] this is
+    # Name of an environment variable holding the key (e.g. GEMINI_API_KEY). The key itself is read from the
+    # environment when the client is made and never stored in the config, a result, a cache or a log.
+    api_key_env: str = ""
+    cloud: bool = False                  # the provider is a remote service: repo code sent to it needs consent
+    requests_per_minute: float = 0       # 0 = no limit
+    tokens_per_minute: float = 0         # prompt + max output tokens, estimated; 0 = no limit
+    cache_responses: bool = False        # replay identical requests (profile, model, prompt) from the cache
+    max_retries_429: int = 6             # HTTP 429: wait (Retry-After, else exponential backoff) and retry
 
 
 @dataclass
@@ -48,6 +57,17 @@ class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     osv: OSVConfig = field(default_factory=OSVConfig)
     grounding: GroundingConfig = field(default_factory=GroundingConfig)
+    profiles: dict[str, LLMConfig] = field(default_factory=dict)   # [llm.profiles.*]; llm is the selected one
+
+    def with_profile(self, name: str) -> "Config":
+        """A copy of this config whose llm is the named profile."""
+        import copy
+        if name not in self.profiles:
+            from depscan.errors import NotFound
+            raise NotFound(f"No LLM profile {name!r} in config.toml (have: {', '.join(self.profiles) or 'none'}).")
+        cfg = copy.deepcopy(self)
+        cfg.llm = copy.deepcopy(self.profiles[name])
+        return cfg
     workspace: Path = PROJECT_ROOT / "workspace"
     results: Path = PROJECT_ROOT / "results"
     logs: Path = PROJECT_ROOT / "logs"
@@ -63,7 +83,15 @@ def load_config(path: Path | None = None) -> Config:
     path = path or PROJECT_ROOT / "config.toml"
     data = tomllib.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     llm_data = {k: v for k, v in data.get("llm", {}).items() if k in LLMConfig.__dataclass_fields__}
-    llm = LLMConfig(**llm_data)
+    base = LLMConfig(**llm_data)
+    # [llm] holds the shared settings; each [llm.profiles.<name>] overrides them. Without profiles, [llm] alone
+    # is the "local_qwen" profile.
+    profiles = {name: LLMConfig(**{**llm_data, **{k: v for k, v in table.items() if k in LLMConfig.__dataclass_fields__},
+                                   "profile": name})
+                for name, table in data.get("llm", {}).get("profiles", {}).items()}
+    profiles = profiles or {base.profile: base}
+    chosen = os.environ.get("DEPSCAN_LLM_PROFILE", data.get("llm", {}).get("default_profile", next(iter(profiles))))
+    llm = profiles.get(chosen) or next(iter(profiles.values()))
     llm.base_url = os.environ.get("DEPSCAN_LLM_BASE_URL", llm.base_url)
     llm.model = os.environ.get("DEPSCAN_LLM_MODEL", llm.model)
     llm.api_key = os.environ.get("DEPSCAN_LLM_API_KEY", llm.api_key)
@@ -78,6 +106,6 @@ def load_config(path: Path | None = None) -> Config:
 
     grounding = GroundingConfig(**{k: v for k, v in data.get("grounding", {}).items()
                                    if k in GroundingConfig.__dataclass_fields__})
-    return Config(llm=llm, osv=osv, grounding=grounding, workspace=resolve("workspace", "workspace"),
+    return Config(llm=llm, osv=osv, grounding=grounding, profiles=profiles, workspace=resolve("workspace", "workspace"),
                   results=resolve("results", "results"), logs=resolve("logs", "logs"),
                   cache=resolve("cache", "cache"), overrides=resolve("overrides", "overrides"))
