@@ -21,10 +21,22 @@ class ResponseCache:
         self._db.commit()
 
     def get(self, key: str) -> tuple[Any, float] | None:
-        """(data, fetched_at) or None. Returns expired entries too; check with is_fresh()."""
+        """(data, fetched_at) or None. Returns expired entries too; check with is_fresh(). A row that is not valid
+        JSON (a corrupted cache) is deleted and treated as a miss."""
         with self._lock:
             row = self._db.execute("SELECT data, fetched_at FROM responses WHERE key = ?", (key,)).fetchone()
-        return (json.loads(row[0]), row[1]) if row else None
+        if not row:
+            return None
+        try:
+            return json.loads(row[0]), row[1]
+        except (json.JSONDecodeError, TypeError):
+            self.delete(key)
+            return None
+
+    def delete(self, key: str) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM responses WHERE key = ?", (key,))
+            self._db.commit()
 
     def put(self, key: str, data: Any) -> None:
         with self._lock:

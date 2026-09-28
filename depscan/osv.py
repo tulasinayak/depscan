@@ -19,6 +19,10 @@ class OSVError(Exception):
     pass
 
 
+def valid_ids(data) -> bool:
+    return isinstance(data, dict) and isinstance(data.get("ids"), list) and all(isinstance(i, str) for i in data["ids"])
+
+
 def query_key(query: dict) -> str:
     return "osv:query:" + hashlib.sha256(json.dumps(query, sort_keys=True).encode()).hexdigest()
 
@@ -69,6 +73,9 @@ class OSVClient:
         pending: list[int] = []
         for i, q in enumerate(queries):
             hit = self.cache.get(query_key(q))
+            if hit and not valid_ids(hit[0]):                   # a corrupted or foreign row: ignore it
+                self.cache.delete(query_key(q))
+                hit = None
             if hit and self.cache.is_fresh(hit[1]):
                 results[i] = hit[0]["ids"]
                 self._count("hits")
@@ -119,6 +126,9 @@ class OSVClient:
     def get_vuln(self, vuln_id: str) -> dict | None:
         key = f"osv:vuln:{vuln_id}"
         hit = self.cache.get(key)
+        if hit and not (isinstance(hit[0], dict) and isinstance(hit[0].get("id"), str)):
+            self.cache.delete(key)
+            hit = None
         if hit and self.cache.is_fresh(hit[1]):
             self._count("hits")
             return hit[0]

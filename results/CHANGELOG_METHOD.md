@@ -122,3 +122,12 @@ Found by `tests/test_manifests_robust.py`.
 - **Conflicting duplicate pins now give a warning.** When the same package is pinned to two different exact
   versions under the same environment marker (e.g. `requests==2.30.0` and `requests==2.31.0`), the scan now warns
   and names the version it uses. Which version is chosen is unchanged.
+
+## 2026-09-28: T2 matching and cache fixes
+
+Found by `tests/test_matching_robust.py`. Version logic was checked against packaging's ordering on 400 generated
+versions (epochs, pre/post/dev releases, local versions) and needed no change.
+
+- **Corrupted cache rows crashed the scan.** A row of the SQLite response cache that isn't valid JSON, or has the
+  wrong shape, made the scan fail with JSONDecodeError, TypeError or KeyError, or used the bad data as advisory ids.
+  Such rows are now deleted and treated as a miss: refetched online, reported as a miss offline.
