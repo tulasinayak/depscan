@@ -131,3 +131,15 @@ versions (epochs, pre/post/dev releases, local versions) and needed no change.
 - **Corrupted cache rows crashed the scan.** A row of the SQLite response cache that isn't valid JSON, or has the
   wrong shape, made the scan fail with JSONDecodeError, TypeError or KeyError, or used the bad data as advisory ids.
   Such rows are now deleted and treated as a miss: refetched online, reported as a miss offline.
+
+## 2026-09-28: T4 reachability fixes (from the T4 rule tests; no held-out data involved)
+
+Found by `tests/test_reachability_rules.py`. Both made a function "never runs" (a code-decided fail, so possibly a
+wrong not affected) when the analysis could not actually know.
+
+- **Django URLconfs are entry points.** A module with a module-level `urlpatterns` assignment is now an entry point,
+  so views referenced there, and the code they call, are reachable. Before, if nothing imported `urls.py` by name
+  (Django loads it via `ROOT_URLCONF`), the views and everything behind them were "never imported".
+- **More dynamic dispatch gives unknown.** `eval` / `exec` / `compile` of non-constant code, and
+  `module.__dict__[name]` with a computed name, now count as dynamic dispatch, like computed `getattr` already did.
+  A function nothing references directly is then unknown, not unreachable.

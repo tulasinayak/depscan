@@ -348,6 +348,11 @@ class CodeIndex:
                 self.dynamic.append(f"{where} {_segment(node, 60)}")
             if fn in (["globals"], ["locals"], ["vars"]) and isinstance(mod.parents.get(node), ast.Subscript):
                 self.dynamic.append(f"{where} {_segment(mod.parents[node], 60)}")
+            if fn in (["eval"], ["exec"], ["compile"]) and computed:      # code made at runtime can call anything
+                self.dynamic.append(f"{where} {_segment(node, 60)}")
+        if isinstance(node, ast.Subscript) and not mod.is_test and isinstance(node.value, ast.Attribute) \
+                and node.value.attr == "__dict__" and not isinstance(node.slice, ast.Constant):
+            self.dynamic.append(f"{where} {_segment(node, 60)}")       # module.__dict__[name]
         if isinstance(node, ast.Assign) and mod.parents.get(node) is mod.tree:
             if CONFIG_WORDS.search(ast.unparse(node.value)):
                 mod.config_names |= {t.id for t in node.targets if isinstance(t, ast.Name)}
@@ -390,6 +395,9 @@ class CodeIndex:
                     return f"app factory {node.name}() (line {node.lineno})"
                 if any(self._is_route(d) for d in node.decorator_list):
                     return f"route handler {node.name}() (line {node.lineno})"
+            elif isinstance(node, ast.Assign) and mod.parents.get(node) is mod.tree and \
+                    any(isinstance(t, ast.Name) and t.id == "urlpatterns" for t in node.targets):
+                return f"Django URLconf urlpatterns (line {node.lineno})"
             elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) \
                     and mod.parents.get(node) is mod.tree:
                 fn = _dotted(node.value.func) or []
