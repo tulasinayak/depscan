@@ -40,7 +40,7 @@ MAX_FILE_BYTES = 5 * 1024 * 1024              # a single member larger than this
 MAX_UNCOMPRESSED = 500 * 1024 * 1024          # declared sizes walked per archive: stops zip/tar bombs
 MAX_MEMBERS = 50_000                          # members looked at per archive
 MAX_RETRIEVED = 60
-INDEX_VERSION = 1
+INDEX_VERSION = 2                     # 2: definitions inside module/class-level if/try/with
 STOP = set("the and for with that this from when into could can not are was were has have its via use used using "
            "may allow allows attacker attackers remote user users data file files code before after version versions "
            "python package vulnerability vulnerable issue fix fixed which will would been being also only other "
@@ -248,6 +248,25 @@ def _resolve_from(mod: str, is_pkg: bool, level: int, target: str | None) -> str
     return ".".join([*base, *([target] if target else [])])
 
 
+def _flat(body: list[ast.stmt]):
+    """Statements of a module or class body, including those inside if/try/with blocks there
+    (``if sys.version_info >= ...: def where(): ...``, ``try: import x except ImportError: ...``)."""
+    for node in body:
+        if isinstance(node, ast.If):
+            yield from _flat(node.body)
+            yield from _flat(node.orelse)
+        elif isinstance(node, (ast.Try, getattr(ast, "TryStar", ast.Try))):
+            yield from _flat(node.body)
+            for h in node.handlers:
+                yield from _flat(h.body)
+            yield from _flat(node.orelse)
+            yield from _flat(node.finalbody)
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            yield from _flat(node.body)
+        else:
+            yield node
+
+
 def index_sources(package: str, version: str, archive: str, top_level: list[str],
                   sources: dict[str, tuple[str, bytes]]) -> ApiIndex:
     """Build the index from {module: (path, source)}. Parsing only; nothing is executed."""
@@ -269,7 +288,8 @@ def index_sources(package: str, version: str, archive: str, top_level: list[str]
         idx.symbols[mod] = "module"
         imports: dict[str, str] = {}
         spans = idx.spans.setdefault(mod, [])
-        for node in tree.body:
+        top = list(_flat(tree.body))
+        for node in top:
             if isinstance(node, ast.Import):
                 for a in node.names:
                     imports[a.asname or a.name.split(".")[0]] = a.name if a.asname else a.name.split(".")[0]
@@ -295,7 +315,7 @@ def index_sources(package: str, version: str, archive: str, top_level: list[str]
                         else:
                             idx.symbols.setdefault(f"{mod}.{t.id}", "variable")
         for node in ast.walk(tree):
-            if isinstance(node, (ast.Import, ast.ImportFrom)) and node not in tree.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)) and node not in top:
                 for a in node.names:                      # imports inside functions still resolve names
                     if isinstance(node, ast.Import):
                         imports.setdefault(a.asname or a.name.split(".")[0], a.name.split(".")[0] if not a.asname
@@ -305,7 +325,7 @@ def index_sources(package: str, version: str, archive: str, top_level: list[str]
                         imports.setdefault(a.asname or a.name, f"{src}.{a.name}")
 
         def visit(body, prefix: str, cls: str | None) -> None:
-            for node in body:
+            for node in _flat(body):
                 if isinstance(node, ast.ClassDef):
                     q = f"{prefix}.{node.name}"
                     idx.symbols[q] = "class"

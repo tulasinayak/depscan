@@ -156,3 +156,19 @@ pass/fail/unknown × code/AI match the documented rules, with no change needed.
   in another package are dropped, with the reason in `validation_issues`.
 - **Effect on the running qwen llm+facts spec run.** That run was started before this fix. Its specs record every
   rewrite in `validation_issues`, so the affected ones will be found and corrected before the 4-variant comparison.
+- **Result of that check.** No llm+facts spec was affected. The only rewrites from another root were Pillow's
+  distribution name (`Pillow.PIL.Image.open` → `PIL.Image.open`), which is still resolved.
+
+## 2026-09-28: API index missed definitions inside if/try blocks (grounded variants only)
+
+Found while reviewing the Gemini+facts specs for the 4-variant comparison: validation dropped `certifi.where` as "not
+in the API of certifi 2023.5.7". certifi defines `where()` only inside `if sys.version_info >= (3, 11): ... else:
+...`, and the index only read definitions directly in a module's or class's body.
+
+- The index now also reads definitions and imports inside module-level and class-level `if` / `try` / `with` blocks
+  (`try: from ._speedups import x except ImportError: def x(): ...` is the common case). Index format version 2, so
+  cached indexes are rebuilt.
+- **Effect on the grounded specs.** The facts put in the prompt change for 40 of the 79 advisory/package pairs of
+  development + dev-2, mostly one or two entries at the end of the 60-entry excerpt; validation changes only for
+  the two certifi advisories. Those specs are regenerated in both grounded variants (llm+facts and gemini+facts)
+  before the comparison, so every grounded spec comes from the fixed index.

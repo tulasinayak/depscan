@@ -18,7 +18,7 @@ from depscan.agents.stepwise import StepwiseAgent, trigger_match
 from depscan.cache import ResponseCache
 from depscan.codeindex import CodeIndex
 from depscan.grounding import (MAX_FILE_BYTES, PackageSource, api_excerpt, changed_functions, code_parent_triggers,
-                               read_members, validate_spec)
+                               index_sources, read_members, validate_spec)
 from depscan.import_names import resolve_import_names
 from depscan.models import ParentTrigger, TriggerSpec, Vulnerability
 from depscan.triggers import TriggerStore
@@ -222,6 +222,34 @@ def test_resolve_by_distribution_name_casing_and_unique_name(tmp_path, pypi):
     assert idx.resolve("quuxarc.somewhere.QuuxFile.extractall")[0] == "quuxarc.archive.QuuxFile.extractall"
     assert idx.resolve("quuxarc.QuuxFile.extract_everything")[0] is None
 
+
+
+def test_definitions_inside_module_level_if_and_try_are_indexed():
+    # certifi/core.py defines where() only inside `if sys.version_info >= (3, 11): ... else: ...`
+    core = textwrap.dedent("""
+        import sys
+        if sys.version_info >= (3, 11):
+            def where():
+                return "a"
+        else:
+            def where():
+                return "b"
+        try:
+            from ._speed import fast
+        except ImportError:
+            def fast():
+                return 0
+        class Box:
+            if sys.platform == "win32":
+                def open(self):
+                    pass
+    """).encode()
+    idx = index_sources("certa", "1.0", "certa-1.0.tar.gz", ["certa"],
+                        {"certa": ("certa/__init__.py", b"from .core import where, Box\n"),
+                         "certa.core": ("certa/core.py", core)})
+    assert idx.resolve("certa.where")[0] == "certa.core.where"
+    assert idx.symbols["certa.core.fast"] == "function"
+    assert idx.symbols["certa.core.Box.open"] == "method"
 
 # ---------------------------------------------------------------- 3: retrieval for the prompt
 
