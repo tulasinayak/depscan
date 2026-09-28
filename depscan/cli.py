@@ -194,7 +194,10 @@ def main(argv: list[str] | None = None) -> int:
                        help="stepwise: six gates, mostly code (default); holistic: one LLM call (baseline)")
     sp = sub.add_parser("evaluate-suite")
     evp = sub.add_parser("evaluate")
-    for p in (an, aa, sp, evp):
+    spc = sub.add_parser("specs", help="write the trigger specs of one variant for every advisory of a suite")
+    spc.add_argument("suite")
+    spc.add_argument("--only", help="comma-separated repo names from the suite file (default: all)")
+    for p in (an, aa, sp, evp, spc):
         p.add_argument("--spec-variant", help="stepwise trigger specs: llm | llm+facts (default: [grounding] "
                        "spec_variant in config.toml)")
     sp.add_argument("suite")
@@ -255,6 +258,17 @@ def run(args, orch: Orchestrator) -> int:
         show(result)
         console.print(f"\nSaved: {result.result_file}")
         return 0
+
+    if args.cmd == "specs":
+        spec = su.load_suite(args.suite)
+        if args.only:
+            wanted = {n.strip() for n in args.only.split(",") if n.strip()}
+            spec.repos = [r for r in spec.repos if r.name in wanted]
+        variant = args.spec_variant or orch.cfg.grounding.spec_variant
+        counts = su.generate_specs(orch, spec, variant, lambda m: console.print(escape(m), style="dim"))
+        console.print(f"Specs ({variant}): {counts['generated']} generated, {counts['cached']} already cached, "
+                      f"{counts['failed']} failed. Folder: {orch.triggers(variant).cache_dir}")
+        return 0 if not counts["failed"] else 1
 
     if args.cmd == "evaluate-suite":
         spec = su.load_suite(args.suite)

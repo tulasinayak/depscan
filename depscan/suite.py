@@ -277,3 +277,25 @@ def to_markdown(rep: SuiteReport) -> str:
                         f"{x.stepwise_reason.replace('|', '/')[:220]} |" for x in r.rows]
         out.append("")
     return "\n".join(out)
+
+
+def generate_specs(orch: Orchestrator, spec: SuiteSpec, variant: str, log: Log = lambda m: None) -> dict[str, int]:
+    """Write the trigger spec of one variant for every advisory of the suite's analysed repos (no checks run).
+    Existing specs of that variant are kept; returns counts: cached, generated, failed."""
+    store = orch.triggers(variant)
+    counts = {"cached": 0, "generated": 0, "failed": 0}
+    for repo in spec.repos:
+        if not repo.analyze:
+            continue
+        result = orch.scan(repo.url)
+        todo = [(dv, v) for dv, v in all_vulns(result)]
+        log(f"{repo.name}: {len(todo)} advisories")
+        for i, (dv, v) in enumerate(todo, 1):
+            t = time.perf_counter()
+            got, generated, problem = store.get(v, dv.dependency.name, orch.llm(), dv.dependency.resolved_version)
+            key = "generated" if generated and got else "failed" if problem else "cached"
+            counts[key] += 1
+            if key != "cached":
+                log(f"  {i}/{len(todo)} {v.id} ({dv.dependency.name}): {key} in {time.perf_counter() - t:.0f}s"
+                    + (f": {problem}" if problem else f", {len(got.trigger_symbols)} trigger symbols"))
+    return counts

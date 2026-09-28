@@ -208,3 +208,18 @@ def test_overloaded_provider_is_retried(tmp_path):
         503, request=httpx.Request("POST", "https://x")), body=None)
     client = LLMClient(LLMConfig(profile="t", max_retries_429=3), client=Flaky([busy, busy]), sleep=slept.append)
     assert client.complete_json("T", "s", "u", Answer)[0].answer == "ok" and slept == [2.0, 4.0]
+
+
+def test_specs_command_writes_one_variant_without_running_checks(tmp_path):
+    from depscan import suite as su
+    from test_orchestrator import FIX, make_orch
+    fake = FakeOpenAI(lambda m: json.dumps({"plain_summary": "x", "trigger_symbols": ["yaml.load"]}))
+    orch = make_orch(tmp_path, llm=LLMClient(LLMConfig(), client=fake))
+    spec = su.SuiteSpec(repos=[su.SuiteRepo(name="flask", url=str(FIX / "flask_vuln_repo"))])
+    first = su.generate_specs(orch, spec, "llm")
+    assert first["generated"] > 0 and first["failed"] == 0
+    assert len(list((tmp_path / "cache" / "triggers").glob("*.json"))) == first["generated"]
+    again = su.generate_specs(orch, spec, "llm")
+    assert again["generated"] == 0 and again["cached"] == first["generated"]            # reruns use no calls
+    result = orch.load(sorted((tmp_path / "results").glob("*.json"))[-1])
+    assert not any(v.verdicts for dv in result.vulnerabilities for v in dv.vulnerabilities)   # no checks ran
