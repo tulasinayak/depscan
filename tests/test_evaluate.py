@@ -100,7 +100,7 @@ def test_expected_for_matches_alias_and_package(scanned):
 
 def test_cli_evaluate_prints_and_saves(scanned, monkeypatch, capsys):
     orch, result, path = scanned
-    monkeypatch.setattr(cli, "Orchestrator", lambda: orch)
+    monkeypatch.setattr(cli, "Orchestrator", lambda *a, **k: orch)
     monkeypatch.setattr(cli, "console", Console(width=220))
     assert cli.main(["evaluate", result.result_file, "--expected", str(path)]) == 0
     out = capsys.readouterr().out
@@ -113,7 +113,7 @@ def test_cli_evaluate_prints_and_saves(scanned, monkeypatch, capsys):
 
 def test_cli_evaluate_default_path_missing(scanned, monkeypatch):
     orch, result, _ = scanned
-    monkeypatch.setattr(cli, "Orchestrator", lambda: orch)
+    monkeypatch.setattr(cli, "Orchestrator", lambda *a, **k: orch)
     assert cli.main(["evaluate", result.result_file]) == 1           # friendly NotFound, no traceback
 
 
