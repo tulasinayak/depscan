@@ -1,6 +1,7 @@
 """T1: manifest parsing. Property-based requirement lines, nasty real-world files, big lockfiles."""
 
 import json
+import re
 import time
 from pathlib import Path
 
@@ -28,8 +29,9 @@ markers = st.sampled_from([None, 'python_version >= "3.8"', 'sys_platform == "li
 def requirement_lines(draw):
     name, ex, marker = draw(names), draw(extras), draw(markers)
     specs = draw(st.lists(st.tuples(ops, versions), max_size=2, unique_by=lambda t: t[0]))
-    if any(op == "~=" and "." not in v for op, v in specs):          # ~= needs at least two release parts
-        specs = [(op if not (op == "~=" and "." not in v) else ">=", v) for op, v in specs]
+    two_parts = re.compile(r"^\d+\.\d+")                               # ~= needs at least two release numbers
+    specs = [(">=" if op == "~=" and not two_parts.match(v) else op, v) for op, v in specs]
+    specs = list(dict((op, (op, v)) for op, v in specs).values())      # keep operators unique after the swap
     if any(op == "===" for op, _ in specs):
         specs = [s for s in specs if s[0] == "==="][:1]
     req = name + (f"[{','.join(ex)}]" if ex else "") + ",".join(f"{op}{v}" for op, v in specs)
