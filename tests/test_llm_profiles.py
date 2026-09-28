@@ -200,3 +200,11 @@ def test_gui_cloud_profile_needs_confirmation(tmp_path):
     assert at.session_state["_orch_key"][0] == "local_qwen"                     # not used before confirming
     next(b for b in at.button if b.key == "cloud_confirm").click().run()
     assert at.session_state["cloud_ok"] and at.session_state["_orch_key"][0] == "gemini"
+
+
+def test_overloaded_provider_is_retried(tmp_path):
+    slept = []
+    busy = openai.InternalServerError("high demand", response=httpx.Response(
+        503, request=httpx.Request("POST", "https://x")), body=None)
+    client = LLMClient(LLMConfig(profile="t", max_retries_429=3), client=Flaky([busy, busy]), sleep=slept.append)
+    assert client.complete_json("T", "s", "u", Answer)[0].answer == "ok" and slept == [2.0, 4.0]

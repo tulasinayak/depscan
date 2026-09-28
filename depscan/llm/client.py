@@ -188,11 +188,12 @@ class LLMClient:
         return raw, meta
 
     def _create_with_retries(self, kwargs: dict):
-        """HTTP 429: wait for Retry-After when the server sends it, else back off exponentially (2, 4, 8 ... 60 s)."""
+        """HTTP 429 (rate limit) and 500/503 (overloaded): wait for Retry-After when the server sends it, else back off
+        exponentially (2, 4, 8 ... 60 s)."""
         for attempt in range(self.cfg.max_retries_429 + 1):
             try:
                 return self.client.chat.completions.create(**kwargs)
-            except openai.RateLimitError as e:
+            except (openai.RateLimitError, openai.InternalServerError) as e:
                 if attempt == self.cfg.max_retries_429:
                     raise
                 headers = getattr(getattr(e, "response", None), "headers", None) or {}
@@ -200,7 +201,9 @@ class LLMClient:
                     pause = float(headers.get("retry-after", ""))
                 except ValueError:
                     pause = min(60.0, 2.0 ** (attempt + 1))
-                self._wait_status(f"waiting for rate limit ({pause:.0f}s, HTTP 429)")
+                code = getattr(e, "status_code", 429)
+                self._wait_status(f"waiting for rate limit ({pause:.0f}s, HTTP 429)" if code == 429 else
+                                  f"provider busy, retrying in {pause:.0f}s (HTTP {code})")
                 self.sleep(pause)
                 self._wait_status("")
 
